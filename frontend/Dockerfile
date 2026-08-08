@@ -2,17 +2,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Копіюємо файли конфігурації
 COPY package.json package-lock.json* ./
-
-# Встановлюємо залежності
 RUN npm install
 
-# Копіюємо весь інший код
 COPY . .
+RUN npm run build
 
-# Відкриваємо порт, на якому працює Vite
 EXPOSE 5173
 
-# Запускаємо сервер розробки
-CMD ["npm", "run", "dev"]
+CMD ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "5173"]

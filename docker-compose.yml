@@ -43,9 +43,6 @@ services:
     restart: unless-stopped
     ports:
       - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules # Щоб не затерти модулі
     depends_on:
       - backend
 

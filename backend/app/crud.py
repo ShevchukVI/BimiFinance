@@ -4,7 +4,20 @@ from sqlalchemy import extract
 from sqlalchemy.orm import Session
 from app import models
 
-# FAMILIES
+
+def _attach_derived(db: Session, user, family_id: int = None):
+    user.has_mono_token = bool(user.mono_token)
+    user.role = None
+    target = family_id or user.current_active_family_id
+    if target:
+        mem = (db.query(models.FamilyMember)
+               .filter(models.FamilyMember.user_id == user.id,
+                       models.FamilyMember.family_id == target).first())
+        if mem:
+            user.role = mem.role
+    return user
+
+
 def get_families(db: Session): return db.query(models.Family).order_by(models.Family.id).all()
 def get_family_by_id(db: Session, family_id: int): return db.query(models.Family).filter(models.Family.id == family_id).first()
 def get_family_by_invite(db: Session, invite_code: str): return db.query(models.Family).filter(models.Family.invite_code == invite_code).first()
@@ -23,27 +36,83 @@ def regenerate_invite(db: Session, family_id: int):
         db.refresh(family)
     return family
 
-# USERS & TOKENS
+
+def is_family_member(db: Session, user_id: int, family_id: int) -> bool:
+    return (db.query(models.FamilyMember)
+            .filter(models.FamilyMember.user_id == user_id,
+                    models.FamilyMember.family_id == family_id).first()) is not None
+
+def get_membership_role(db: Session, user_id: int, family_id: int):
+    mem = (db.query(models.FamilyMember)
+           .filter(models.FamilyMember.user_id == user_id,
+                   models.FamilyMember.family_id == family_id).first())
+    return mem.role if mem else None
+
+def add_membership(db: Session, user_id: int, family_id: int, role: str = "member"):
+    if not is_family_member(db, user_id, family_id):
+        db.add(models.FamilyMember(user_id=user_id, family_id=family_id, role=role))
+        db.commit()
+
+def get_user_families(db: Session, user_id: int):
+    return (db.query(models.Family, models.FamilyMember.role)
+            .join(models.FamilyMember, models.Family.id == models.FamilyMember.family_id)
+            .filter(models.FamilyMember.user_id == user_id)
+            .order_by(models.Family.id).all())
+
+def set_active_family(db: Session, user_id: int, family_id: int):
+    if not is_family_member(db, user_id, family_id):
+        return None
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        return None
+    user.current_active_family_id = family_id
+    db.commit()
+    db.refresh(user)
+    return _attach_derived(db, user, family_id)
+
+def join_family_by_invite(db: Session, user, invite_code: str):
+    family = get_family_by_invite(db, invite_code)
+    if not family:
+        return None
+    if not is_family_member(db, user.id, family.id):
+        add_membership(db, user.id, family.id, "member")
+    user.current_active_family_id = family.id
+    db.commit()
+    db.refresh(user)
+    return family
+
+
 def get_users(db: Session, family_id: int):
-    users = db.query(models.User).filter(models.User.family_id == family_id).order_by(models.User.id).all()
-    for u in users: u.has_mono_token = bool(u.mono_token)
-    return users
+    users = (db.query(models.User)
+             .join(models.FamilyMember, models.User.id == models.FamilyMember.user_id)
+             .filter(models.FamilyMember.family_id == family_id)
+             .order_by(models.User.id).all())
+    return [_attach_derived(db, u, family_id) for u in users]
 
 def get_user_by_tg_id(db: Session, tg_id: int):
     u = db.query(models.User).filter(models.User.tg_id == tg_id).first()
-    if u: u.has_mono_token = bool(u.mono_token)
+    if u:
+        _attach_derived(db, u)
     return u
 
-def create_user(db: Session, family_id: int, name: str, tg_id: int = None, mono_token: str = None, role: str = None):
+def get_user_by_id(db: Session, user_id: int):
+    u = db.query(models.User).filter(models.User.id == user_id).first()
+    if u:
+        _attach_derived(db, u)
+    return u
+
+def create_user_in_family(db: Session, family_id: int, name: str, tg_id: int = None, mono_token: str = None,
+                          role: str = None):
+    is_first = db.query(models.FamilyMember).filter(models.FamilyMember.family_id == family_id).count() == 0
     if role is None:
-        is_first = db.query(models.User).filter(models.User.family_id == family_id).count() == 0
         role = "admin" if is_first else "member"
-    obj = models.User(family_id=family_id, name=name, tg_id=tg_id, mono_token=mono_token, role=role)
-    db.add(obj)
+    user = models.User(name=name, tg_id=tg_id, mono_token=mono_token, current_active_family_id=family_id)
+    db.add(user)
+    db.flush()
+    db.add(models.FamilyMember(user_id=user.id, family_id=family_id, role=role))
     db.commit()
-    db.refresh(obj)
-    obj.has_mono_token = bool(obj.mono_token)
-    return obj
+    db.refresh(user)
+    return _attach_derived(db, user, family_id)
 
 def update_user_token(db: Session, tg_id: int, new_token: str):
     user = db.query(models.User).filter(models.User.tg_id == tg_id).first()
@@ -51,19 +120,34 @@ def update_user_token(db: Session, tg_id: int, new_token: str):
         user.mono_token = new_token
         db.commit()
         db.refresh(user)
+        _attach_derived(db, user)
     return user
 
 def get_all_mono_tokens(db: Session):
     return db.query(models.User).filter(models.User.mono_token != None).all()
 
 def remove_user(db: Session, family_id: int, user_id: int):
-    user = db.query(models.User).filter(models.User.id == user_id, models.User.family_id == family_id).first()
-    if user:
+    mem = (db.query(models.FamilyMember)
+           .filter(models.FamilyMember.user_id == user_id,
+                   models.FamilyMember.family_id == family_id).first())
+    if not mem:
+        return None
+    db.delete(mem)
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if user and user.current_active_family_id == family_id:
+        remaining = db.query(models.FamilyMember.family_id).filter(
+            models.FamilyMember.user_id == user_id).all()
+        user.current_active_family_id = remaining[0][0] if remaining else None
+    if user and db.query(models.FamilyMember).filter(models.FamilyMember.user_id == user_id).count() == 0:
         db.delete(user)
         db.commit()
+        return user
+    db.commit()
+    if user:
+        _attach_derived(db, user)
     return user
 
-# CATEGORIES
+
 def get_categories(db: Session, family_id: int): return db.query(models.Category).filter(models.Category.family_id == family_id).order_by(models.Category.id).all()
 
 def create_category(db: Session, family_id: int, icon: str, name: str, color: str, type: str):
@@ -73,7 +157,7 @@ def create_category(db: Session, family_id: int, icon: str, name: str, color: st
     db.refresh(obj)
     return obj
 
-# TRANSACTIONS
+
 def get_transactions(db: Session, family_id: int, skip: int = 0, limit: int = 100): return db.query(models.Transaction).filter(models.Transaction.family_id == family_id).order_by(models.Transaction.date.desc(), models.Transaction.id.desc()).offset(skip).limit(limit).all()
 
 def get_transaction_by_id(db: Session, tx_id: int): return db.query(models.Transaction).filter(models.Transaction.id == tx_id).first()
@@ -105,7 +189,7 @@ def delete_transaction(db: Session, tx_id: int):
         db.commit()
     return tx
 
-# STATS
+
 def get_family_stats(db: Session, family_id: int):
     now = datetime.now()
     txs = db.query(models.Transaction).filter(
@@ -118,15 +202,13 @@ def get_family_stats(db: Session, family_id: int):
     cats = {}
     for t in txs:
         if t.type == "Витрати":
-            # БУЛО: cat_name = f"{t.category.icon} {t.category.name}"
-            # СТАЛО: Просто беремо ім'я (в якому вже є емоджі після міграції)
             cat_name = t.category.name if t.category else "Інше"
             cats[cat_name] = cats.get(cat_name, 0) + t.amount
     top_cats = [{"name": k, "amount": v} for k, v in cats.items()]
     top_cats.sort(key=lambda x: x["amount"], reverse=True)
     return {"income": income, "expense": expense, "balance": income - expense, "top_categories": top_cats}
 
-# NOTES (ЧЕРНЕТКА)
+
 def get_notes(db: Session, family_id: int): return db.query(models.Note).filter(models.Note.family_id == family_id).order_by(models.Note.id.desc()).all()
 
 def get_note_by_id(db: Session, note_id: int): return db.query(models.Note).filter(models.Note.id == note_id).first()
@@ -151,7 +233,7 @@ def delete_note(db: Session, note_id: int):
         db.commit()
     return note
 
-# JARS (СКАРБНИЧКИ)
+
 def get_jars(db: Session, family_id: int): return db.query(models.Jar).filter(models.Jar.family_id == family_id).order_by(models.Jar.id).all()
 
 def get_jar_by_id(db: Session, jar_id: int): return db.query(models.Jar).filter(models.Jar.id == jar_id).first()
@@ -170,3 +252,32 @@ def topup_jar(db: Session, jar_id: int, amount: float):
         db.commit()
         db.refresh(jar)
     return jar
+
+
+# BANK ACCOUNTS (persistent Monobank/other bank account → user mapping)
+def get_user_bank_accounts(db: Session, user_id: int):
+    return db.query(models.BankAccount).filter(models.BankAccount.user_id == user_id).all()
+
+def upsert_bank_account(db: Session, user_id: int, provider: str, external_account_id: str, name: str = None):
+    existing = (db.query(models.BankAccount)
+                .filter(models.BankAccount.user_id == user_id,
+                        models.BankAccount.provider == provider,
+                        models.BankAccount.external_account_id == external_account_id).first())
+    if existing:
+        if name:
+            existing.name = name
+        db.commit()
+        return existing
+    obj = models.BankAccount(user_id=user_id, provider=provider, external_account_id=external_account_id, name=name)
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+def get_all_bank_accounts(db: Session):
+    """Bot на старті: отримує всі банківські рахунки для наповнення карт."""
+    return db.query(models.BankAccount).all()
+
+def clear_user_bank_accounts(db: Session, user_id: int):
+    db.query(models.BankAccount).filter(models.BankAccount.user_id == user_id).delete()
+    db.commit()

@@ -1,6 +1,6 @@
 from datetime import date
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 class FamilyCreate(BaseModel):
     name: str
@@ -9,8 +9,6 @@ class FamilyOut(BaseModel):
     name: str
     invite_code: str
     model_config = {"from_attributes": True}
-class FamilyTokenUpdate(BaseModel):
-    mono_token: str
 class UserTokenUpdate(BaseModel):
     mono_token: str
 class SystemTokenOut(BaseModel):
@@ -22,15 +20,30 @@ class UserCreate(BaseModel):
     name: str
     tg_id: Optional[int] = None
     mono_token: Optional[str] = None
-    role: Optional[str] = None  # 'admin' | 'member' (дефолт: перший юзер сім'ї = admin)
+    role: Optional[str] = None
 class UserOut(BaseModel):
     id: int
-    family_id: int
     tg_id: Optional[int]
     name: str
     has_mono_token: bool = False
+    current_active_family_id: Optional[int] = None
     role: Optional[str] = None
     model_config = {"from_attributes": True}
+
+    @computed_field
+    @property
+    def family_id(self) -> Optional[int]:
+        """Backward compat — frontend uses family_id."""
+        return self.current_active_family_id
+class FamilyMembershipOut(BaseModel):
+    family_id: int
+    name: str
+    role: str
+    is_active: bool = False
+class JoinFamilyRequest(BaseModel):
+    invite_code: str
+class SetActiveFamilyRequest(BaseModel):
+    family_id: int
 class CategoryCreate(BaseModel):
     family_id: int
     icon: str
@@ -105,7 +118,6 @@ class NoteOut(BaseModel):
     content: str
     model_config = {"from_attributes": True}
 
-# --- Phase 1: Auth ---
 class InitDataRequest(BaseModel):
     init_data: str
 

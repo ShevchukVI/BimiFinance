@@ -8,5 +8,4 @@ config.py
 !.env.example
 .idea/
 .vscode/
-*.txt
-pack_project.py
+dist/node_modules/

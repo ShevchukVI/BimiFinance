@@ -1,7 +1,7 @@
 import gzip
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, date
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -11,6 +11,7 @@ from app import crud, schemas
 from app.config import settings
 from app.core import security
 from app.core.deps import require_internal_key
+from app.core.achievements import get_earned_achievements
 from app.database import get_db
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -68,3 +69,45 @@ def system_backup(_: None = Depends(require_internal_key)):
         media_type="application/gzip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/achievements")
+def get_achievements(tg_id: int, _: None = Depends(require_internal_key), db: Session = Depends(get_db)):
+    """Bot: повертає досягнення користувача на основі його статистики."""
+    user = crud.get_user_by_tg_id(db, tg_id)
+    if not user:
+        return []
+    family_id = user.current_active_family_id
+    if not family_id:
+        return []
+
+    total_tx = db.query(crud.models.Transaction).filter(
+        crud.models.Transaction.family_id == family_id,
+        crud.models.Transaction.type == "Витрати"
+    ).count()
+
+    income_tx = db.query(crud.models.Transaction).filter(
+        crud.models.Transaction.family_id == family_id,
+        crud.models.Transaction.type == "Поповнення"
+    ).all()
+
+    total_saved = sum(t.amount for t in income_tx)
+    current_streak = 0
+    today = date.today()
+    for i in range(30):
+        d = today.replace(day=today.day - i) if today.day > i else today.replace(month=today.month - 1, day=28)
+        count = db.query(crud.models.Transaction).filter(
+            crud.models.Transaction.family_id == family_id,
+            crud.models.Transaction.date == d.isoformat()
+        ).count()
+        if count > 0:
+            current_streak += 1
+        else:
+            break
+
+    earned = get_earned_achievements({
+        "total_transactions": total_tx,
+        "current_streak_days": current_streak,
+        "total_saved": total_saved,
+    })
+    return [{"key": a.key, "name": a.name, "icon": a.icon, "description": a.description} for a in earned]
