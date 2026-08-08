@@ -1,8 +1,7 @@
 import axios from 'axios';
 
-// Клієнт для звернення до FastAPI (BimiFinance).
 const api = axios.create({
-  baseURL: 'https://bimif.vshevchuk.pp.ua', // Працюючий бекенд
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'https://bimif.vshevchuk.pp.ua',
   headers: {
     'Content-Type': 'application/json',
   },

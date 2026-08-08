@@ -1,0 +1,68 @@
+services:
+
+  postgres:
+    image: postgres:17
+    container_name: bimifinance_dev_postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      - "5434:5432"
+
+    volumes:
+      - dev_postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+    networks:
+      - dev_network
+
+  backend:
+    build: ./backend
+    container_name: bimifinance_dev_backend
+    restart: unless-stopped
+
+    ports:
+      - "18082:8000"
+
+    env_file:
+      - .env.dev
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - dev_network
+
+  frontend:
+    build: ./frontend
+    container_name: bimifinance_dev_frontend
+    restart: unless-stopped
+    ports:
+      - "5174:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:18082
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - dev_network
+
+volumes:
+  dev_postgres_data:
+
+networks:
+  dev_network:
+    external: true
+    name: bimi_dev_network

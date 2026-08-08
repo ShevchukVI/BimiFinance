@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.core import security
-from app.core.deps import Actor, get_actor, rate_limit_ip, require_family_admin
+from app.core.deps import Actor, get_actor, require_family_admin, require_user
 from app.database import get_db
 
 router = APIRouter(tags=["users"])
@@ -11,20 +11,38 @@ router = APIRouter(tags=["users"])
 
 @router.post("/users", response_model=schemas.UserOut)
 def create_user(payload: schemas.UserCreate, actor: Actor = Depends(get_actor), db: Session = Depends(get_db)):
-    """Bot: trusted (family in body). Mini App: family admin only."""
     if actor.kind == "user":
         require_family_admin(payload.family_id, actor)
     mono_enc = security.encrypt_secret(payload.mono_token) if payload.mono_token else None
-    return crud.create_user(db, payload.family_id, payload.name, payload.tg_id, mono_enc, payload.role)
+    return crud.create_user_in_family(db, payload.family_id, payload.name, payload.tg_id, mono_enc, payload.role)
 
 
 @router.put("/users/me/token", response_model=schemas.UserOut)
-def update_my_token(payload: schemas.UserTokenUpdate, actor: Actor = Depends(get_actor),
+def update_my_token(payload: schemas.UserTokenUpdate, actor: Actor = Depends(require_user),
                     db: Session = Depends(get_db)):
-    """Mini App: set your own Monobank token (encrypted at rest)."""
-    if actor.kind != "user":
-        raise HTTPException(status_code=403, detail="Mini App only")
     return crud.update_user_token(db, actor.user.tg_id, security.encrypt_secret(payload.mono_token))
+
+
+@router.get("/users/me/families", response_model=list[schemas.FamilyMembershipOut])
+def get_my_families(actor: Actor = Depends(require_user), db: Session = Depends(get_db)):
+    rows = crud.get_user_families(db, actor.user_id)
+    active_id = actor.user.current_active_family_id
+    result = []
+    for family, role in rows:
+        result.append(schemas.FamilyMembershipOut(
+            family_id=family.id, name=family.name, role=role, is_active=(family.id == active_id),
+        ))
+    result.sort(key=lambda m: (not m.is_active, m.family_id))
+    return result
+
+
+@router.patch("/users/me/active-family", response_model=schemas.UserOut)
+def set_active_family(payload: schemas.SetActiveFamilyRequest, actor: Actor = Depends(require_user),
+                      db: Session = Depends(get_db)):
+    user = crud.set_active_family(db, actor.user_id, payload.family_id)
+    if not user:
+        raise HTTPException(status_code=403, detail="Not a member of this family")
+    return user
 
 
 @router.delete("/families/{family_id}/users/{user_id}")

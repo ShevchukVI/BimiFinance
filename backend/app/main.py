@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, categories, families, jars, notes, system, transactions, users
+from app.api import auth, banking, categories, families, jars, notes, system, transactions, users, utilities
 from app.config import settings
 from app.core.migrations import run_migrations
 from app.core.security import encrypt_legacy_tokens
@@ -29,6 +29,7 @@ if origins:
     )
 
 app.include_router(auth.router)
+app.include_router(banking.router)
 app.include_router(system.router)
 app.include_router(families.router)
 app.include_router(users.router)
@@ -36,6 +37,7 @@ app.include_router(categories.router)
 app.include_router(transactions.router)
 app.include_router(jars.router)
 app.include_router(notes.router)
+app.include_router(utilities.router)
 
 
 @app.get("/health")

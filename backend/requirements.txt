@@ -1,0 +1,20 @@
+fastapi
+uvicorn[standard]
+
+sqlalchemy
+psycopg2-binary
+
+# Migrations
+alembic
+
+pydantic
+pydantic-settings
+
+python-dotenv
+
+# Phase 1: Security
+cryptography
+PyJWT
+
+# Banking providers (async HTTP)
+aiohttp
