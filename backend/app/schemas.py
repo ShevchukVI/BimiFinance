@@ -109,6 +109,7 @@ class FamilyStatsOut(BaseModel):
     expense: float
     balance: float
     top_categories: List[CategoryStat]
+    pending_count: int = 0
 class NoteCreate(BaseModel):
     family_id: int
     content: str

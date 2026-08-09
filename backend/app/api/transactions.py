@@ -14,6 +14,13 @@ def get_transactions(family_id: int, skip: int = 0, limit: int = 100,
     return crud.get_transactions(db, family_id, skip=skip, limit=limit)
 
 
+@router.get("/families/{family_id}/pending", response_model=list[schemas.TransactionOut])
+def get_pending_transactions(family_id: int, _: None = Depends(require_family),
+                             db: Session = Depends(get_db)):
+    """Inbox Zero: транзакції в службовій категорії 'Очікує'."""
+    return crud.get_pending_transactions(db, family_id)
+
+
 @router.post("/transactions", response_model=schemas.TransactionOut)
 def create_transaction(tx: schemas.TransactionCreate, actor: Actor = Depends(get_actor),
                        db: Session = Depends(get_db)):

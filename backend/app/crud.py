@@ -206,7 +206,26 @@ def get_family_stats(db: Session, family_id: int):
             cats[cat_name] = cats.get(cat_name, 0) + t.amount
     top_cats = [{"name": k, "amount": v} for k, v in cats.items()]
     top_cats.sort(key=lambda x: x["amount"], reverse=True)
-    return {"income": income, "expense": expense, "balance": income - expense, "top_categories": top_cats}
+    return {"income": income, "expense": expense, "balance": income - expense,
+            "top_categories": top_cats, "pending_count": count_pending_transactions(db, family_id)}
+
+
+def _pending_query(db: Session, family_id: int):
+    """Транзакції в службовій категорії 'Очікує' (Inbox Zero)."""
+    return (db.query(models.Transaction)
+            .join(models.Category, models.Transaction.category_id == models.Category.id)
+            .filter(models.Transaction.family_id == family_id,
+                    models.Category.name.like("%Очікує%")))
+
+
+def get_pending_transactions(db: Session, family_id: int, limit: int = 100):
+    return (_pending_query(db, family_id)
+            .order_by(models.Transaction.date.desc(), models.Transaction.id.desc())
+            .limit(limit).all())
+
+
+def count_pending_transactions(db: Session, family_id: int) -> int:
+    return _pending_query(db, family_id).count()
 
 
 def get_notes(db: Session, family_id: int): return db.query(models.Note).filter(models.Note.family_id == family_id).order_by(models.Note.id.desc()).all()
