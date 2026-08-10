@@ -353,3 +353,24 @@ def test_create_transaction_with_currency_and_jar(seeded, db):
     body = r.json()
     assert body["currency"] == "USD"
     assert body["jar_id"] == jar["id"]
+
+
+def test_jar_deposit_not_in_cash_balance(seeded, db):
+    """Регресія: поповнення скарбнички (jar_id) НЕ має входити в cash баланс.
+    Готівка: 1000 USD доходу → 100 USD у скарбничку → cash USD = 900."""
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    make_tx(db, fam.id, admin.id, cats["Зарплата"].id, 1000, "Поповнення",
+            title="USD дохід", currency="USD")
+    # jar USD + депозит 100
+    jar = client.post("/jars", headers=BOT_HEADERS,
+                      json={"family_id": fam.id, "name": "Trip", "goal": 5000, "currency": "USD"})
+    jar_id = jar.json()["id"]
+    client.post(f"/jars/{jar_id}/topup", headers=BOT_HEADERS, json={"amount": 100})
+
+    stats = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()
+    by_cur = {c["currency"]: c["balance"] for c in stats["cash_by_currency"]}
+    assert by_cur["USD"] == 900  # 1000 - 100 (у скарбничку)
+    # але баланс самої скарбнички = 100
+    jars = client.get(f"/families/{fam.id}/jars", headers=_hdr(fam.id)).json()
+    trip = next(j for j in jars if j["id"] == jar_id)
+    assert trip["balance"] == 100

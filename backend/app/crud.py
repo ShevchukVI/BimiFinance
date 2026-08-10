@@ -304,27 +304,41 @@ def get_family_stats(db: Session, family_id: int):
             "cash_by_currency": get_cash_balance_by_currency(db, family_id)}
 
 
+def _cash_delta(t_type: str, amt: float, is_jar: bool) -> float:
+    """Вплив транзакції на готівку.
+    Звичайні: дохід +, витрата -, переказ зігнований.
+    Jar-транзакції — це рух готівки ↔ скарбничка:
+      депозит у скарбничку (Поповнення, jar_id) → готівка зменшується (-amt)
+      зняття зі скарбнички (Витрати, jar_id)   → готівка збільшується (+amt)
+    Jar-транзакції НЕ входять у місячні income/expense (див. get_family_stats)."""
+    if is_jar:
+        return -amt if t_type == TYPE_INCOME else (+amt if t_type == TYPE_EXPENSE else 0.0)
+    if t_type == TYPE_INCOME:
+        return amt
+    if t_type == TYPE_EXPENSE:
+        return -amt
+    if t_type == TYPE_TRANSFER:
+        return amt  # зігновані
+    return 0.0
+
+
 def get_cash_balance_by_user(db: Session, family_id: int) -> list:
     """Готівка, згрупована по користувачах І валютах:
-    [{user_id, user_name, currency, balance}, ...]."""
+    [{user_id, user_name, currency, balance}, ...].
+    Jar-депозити зменшують готівку, jar-зняття — збільшують."""
     rows = (db.query(models.Transaction.user_id,
                      models.Transaction.type,
                      models.Transaction.amount,
-                     models.Transaction.currency)
+                     models.Transaction.currency,
+                     models.Transaction.jar_id)
             .filter(models.Transaction.family_id == family_id,
                     models.Transaction.account == ACCOUNT_CASH).all())
     by_key = {}  # (user_id, currency) -> balance
-    for user_id, t_type, amt, cur in rows:
+    for user_id, t_type, amt, cur, jar_id in rows:
         if user_id is None:
             continue
         key = (user_id, cur or DEFAULT_CURRENCY)
-        bal = by_key.setdefault(key, 0.0)
-        if t_type == TYPE_INCOME:
-            by_key[key] = bal + amt
-        elif t_type == TYPE_EXPENSE:
-            by_key[key] = bal - amt
-        elif t_type == TYPE_TRANSFER:
-            by_key[key] = bal + amt  # зігновані
+        by_key[key] = by_key.get(key, 0.0) + _cash_delta(t_type, amt, jar_id is not None)
     result = []
     for (user_id, cur), bal in by_key.items():
         user = db.query(models.User).filter(models.User.id == user_id).first()
@@ -339,42 +353,33 @@ def get_cash_balance_by_user(db: Session, family_id: int) -> list:
 
 
 def get_cash_balance_by_currency(db: Session, family_id: int) -> list:
-    """Готівка по валютах (за всіма користувачами): [{"currency": "UAH", "balance": ..}, ...]."""
+    """Готівка по валютах (за всіма користувачами): [{"currency": "UAH", "balance": ..}, ...].
+    Jar-депозити зменшують готівку, jar-зняття — збільшують."""
     rows = (db.query(models.Transaction.type,
                      models.Transaction.amount,
-                     models.Transaction.currency)
+                     models.Transaction.currency,
+                     models.Transaction.jar_id)
             .filter(models.Transaction.family_id == family_id,
                     models.Transaction.account == ACCOUNT_CASH).all())
     by_cur = {}
-    for t_type, amt, cur in rows:
+    for t_type, amt, cur, jar_id in rows:
         cur = cur or DEFAULT_CURRENCY
-        bal = by_cur.setdefault(cur, 0.0)
-        if t_type == TYPE_INCOME:
-            by_cur[cur] = bal + amt
-        elif t_type == TYPE_EXPENSE:
-            by_cur[cur] = bal - amt
-        elif t_type == TYPE_TRANSFER:
-            by_cur[cur] = bal + amt
+        by_cur[cur] = by_cur.get(cur, 0.0) + _cash_delta(t_type, amt, jar_id is not None)
     return [{"currency": cur, "balance": round(bal, 2)} for cur, bal in sorted(by_cur.items())]
 
 
 def get_account_balance(db: Session, family_id: int, account: str,
                         currency: str = DEFAULT_CURRENCY) -> float:
     """Баланс джерела коштів (наприклад, готівки) за всіма транзакціями сім'ї
-    в ОДНІЙ валюті. Поповнення: +сума; Витрати: -сума; Переказ: зігнована сума.
+    в ОДНІЙ валюті. Jar-депозити зменшують готівку, jar-зняття — збільшують.
     Банківські рахунки так НЕ рахуємо — реальний баланс дає банківський API."""
-    rows = (db.query(models.Transaction.type, models.Transaction.amount)
+    rows = (db.query(models.Transaction.type, models.Transaction.amount, models.Transaction.jar_id)
             .filter(models.Transaction.family_id == family_id,
                     models.Transaction.account == account,
                     models.Transaction.currency == currency).all())
     bal = 0.0
-    for t_type, amt in rows:
-        if t_type == TYPE_INCOME:
-            bal += amt
-        elif t_type == TYPE_EXPENSE:
-            bal -= amt
-        elif t_type == TYPE_TRANSFER:
-            bal += amt  # перекази зберігаються зі знаком
+    for t_type, amt, jar_id in rows:
+        bal += _cash_delta(t_type, amt, jar_id is not None)
     return round(bal, 2)
 
 
