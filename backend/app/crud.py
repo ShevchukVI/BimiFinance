@@ -204,15 +204,22 @@ def _coerce_date(value):
     return value
 
 
+# Ключі, які НІКОЛИ не можна змінювати через оновлення транзакції:
+# user_id/family_id — атрибуція та сімейна ізоляція. Навіть якщо їх спробують
+# передати в payload, вони ігноруються.
+_IMMUTABLE_TX_FIELDS = {"user_id", "family_id", "mono_id"}
+
+
 def update_transaction(db: Session, tx_id: int, payload: dict):
     tx = db.query(models.Transaction).filter(models.Transaction.id == tx_id).first()
     if tx:
         # Категоризація pending → очищаємо назву від маркерів нерозібраності
+        payload = dict(payload)
+        for f in _IMMUTABLE_TX_FIELDS:
+            payload.pop(f, None)
         if payload.get("category_id") is not None:
-            payload = dict(payload)
             if payload.get("title") is None:
                 payload["title"] = _clean_pending_title(tx.title)
-        payload = dict(payload)
         if "date" in payload:
             payload["date"] = _coerce_date(payload["date"])
         for key, value in payload.items(): setattr(tx, key, value)
@@ -224,11 +231,12 @@ def update_tx_by_mono(db: Session, mono_id: str, payload: dict):
     tx = get_tx_by_mono(db, mono_id)
     if not tx:
         return None
+    payload = dict(payload)
+    for f in _IMMUTABLE_TX_FIELDS:
+        payload.pop(f, None)
     if payload.get("category_id") is not None:
-        payload = dict(payload)
         if payload.get("title") is None:
             payload["title"] = _clean_pending_title(tx.title)
-    payload = dict(payload)
     if "date" in payload:
         payload["date"] = _coerce_date(payload["date"])
     for key, value in payload.items():
@@ -264,7 +272,39 @@ def get_family_stats(db: Session, family_id: int):
     top_cats.sort(key=lambda x: x["amount"], reverse=True)
     return {"income": income, "expense": expense, "balance": income - expense,
             "top_categories": top_cats, "pending_count": count_pending_transactions(db, family_id),
-            "balances": {ACCOUNT_CASH: get_account_balance(db, family_id, ACCOUNT_CASH)}}
+            "balances": {ACCOUNT_CASH: get_account_balance(db, family_id, ACCOUNT_CASH)},
+            "cash_by_user": get_cash_balance_by_user(db, family_id)}
+
+
+def get_cash_balance_by_user(db: Session, family_id: int) -> list:
+    """Готівка, згрупована по користувачах сім'ї: [{user_id, user_name, balance}, ...].
+    Для відображення в Mini App так само, як банківські баланси."""
+    rows = (db.query(models.Transaction.user_id,
+                     models.Transaction.type,
+                     models.Transaction.amount)
+            .filter(models.Transaction.family_id == family_id,
+                    models.Transaction.account == ACCOUNT_CASH).all())
+    by_user = {}
+    for user_id, t_type, amt in rows:
+        if user_id is None:
+            continue
+        cur = by_user.setdefault(user_id, 0.0)
+        if t_type == TYPE_INCOME:
+            by_user[user_id] = cur + amt
+        elif t_type == TYPE_EXPENSE:
+            by_user[user_id] = cur - amt
+        elif t_type == TYPE_TRANSFER:
+            by_user[user_id] = cur + amt  # зігновані
+    result = []
+    for user_id, bal in by_user.items():
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        result.append({
+            "user_id": user_id,
+            "user_name": user.name if user else f"User {user_id}",
+            "balance": round(bal, 2),
+        })
+    result.sort(key=lambda r: r["user_id"])
+    return result
 
 
 def get_account_balance(db: Session, family_id: int, account: str) -> float:

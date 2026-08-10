@@ -2,13 +2,16 @@
 import os
 
 # ENV має бути встановлено ДО імпорту app.* (settings fail-fast)
+# FERNET_KEY генерується на льоту — без hardcoded секретів у репозиторії (GitGuardian).
+from cryptography.fernet import Fernet
+
 os.environ.setdefault("POSTGRES_DB", "test")
 os.environ.setdefault("POSTGRES_USER", "test")
 os.environ.setdefault("POSTGRES_PASSWORD", "test")
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
 os.environ.setdefault("BOT_TOKEN", "123:test")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
-os.environ.setdefault("FERNET_KEY", "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=")
+os.environ.setdefault("FERNET_KEY", Fernet.generate_key().decode())
 os.environ.setdefault("BOT_API_KEY", "test-bot-key")
 
 import pytest

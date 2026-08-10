@@ -1,6 +1,7 @@
 export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; user_name?: string | null; }
 export interface Category { id: number; name: string; icon: string; type: string; }
-export interface Stats { income: number; expense: number; balance: number; top_categories: { name: string; amount: number }[]; pending_count: number; balances: Record<string, number>; }
+export interface CashUserBalance { user_id: number; user_name: string; balance: number; }
+export interface Stats { income: number; expense: number; balance: number; top_categories: { name: string; amount: number }[]; pending_count: number; balances: Record<string, number>; cash_by_user?: CashUserBalance[]; }
 export interface Note { id: number; content: string; }
 export interface Jar { id: number; name: string; balance: number; goal: number; }
 export interface FamilyMembership { family_id: number; name: string; role: string; is_active: boolean; }

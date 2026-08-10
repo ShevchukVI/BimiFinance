@@ -314,6 +314,7 @@ export default function App() {
       {(isAddModalOpen || editingTx) && familyId && me && (
         <TxModal
           editingTx={editingTx} categories={categories} familyId={familyId} dbUserId={me.id}
+          accounts={['Готівка', ...(bankBalances.find(b => b.user_id === me.id)?.accounts.map(a => a.name) || [])]}
           onClose={() => { setIsAddModalOpen(false); setEditingTx(null); }}
           onSaved={onTxSaved} onDeleted={onTxDeleted} haptic={triggerHaptic}
         />

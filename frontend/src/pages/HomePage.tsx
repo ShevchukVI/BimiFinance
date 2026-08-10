@@ -38,9 +38,21 @@ export default function HomePage({
       )}
 
       {stats && stats.balances && stats.balances['Готівка'] !== undefined && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '14px 16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <span style={{ color: '#7f8c8d', fontSize: '14px' }}>💵 Готівка (баланс)</span>
-          <span style={{ fontWeight: 'bold', fontSize: '15px', color: stats.balances['Готівка'] >= 0 ? '#2c3e50' : '#e74c3c' }}>{fmt(stats.balances['Готівка'])}</span>
+        <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ color: '#7f8c8d', fontSize: '14px' }}>💵 Готівка</span>
+            <span style={{ fontWeight: 'bold', fontSize: '15px', color: stats.balances['Готівка'] >= 0 ? '#2c3e50' : '#e74c3c' }}>{fmt(stats.balances['Готівка'])}</span>
+          </div>
+          {stats.cash_by_user && stats.cash_by_user.length > 1 && (
+            <div style={{ borderTop: '1px solid #f1f2f6', paddingTop: '8px' }}>
+              {stats.cash_by_user.map(u => (
+                <div key={u.user_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+                  <span style={{ fontSize: '13px', color: '#7f8c8d' }}>👤 {u.user_name}</span>
+                  <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#2c3e50' }}>{fmt(u.balance)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

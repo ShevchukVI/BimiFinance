@@ -20,12 +20,13 @@ const closeBtn: React.CSSProperties = { border: 'none', background: 'transparent
 
 // Додавання/редагування транзакції. editingTx == null → режим створення.
 export default function TxModal({
-  editingTx, categories, familyId, dbUserId, onClose, onSaved, onDeleted, haptic,
+  editingTx, categories, familyId, dbUserId, accounts, onClose, onSaved, onDeleted, haptic,
 }: {
   editingTx: Transaction | null;
   categories: Category[];
   familyId: number;
   dbUserId: number;
+  accounts: string[]; // доступні рахунки: "Готівка" + підключені банки
   onClose: () => void;
   onSaved: (tx: Transaction) => void;
   onDeleted: (id: number) => void;
@@ -37,6 +38,9 @@ export default function TxModal({
   const [txDate, setTxDate] = useState(editingTx?.date || new Date().toISOString().split('T')[0]);
   const [txCategoryId, setTxCategoryId] = useState<number | null>(editingTx?.category_id || null);
   const [txNote, setTxNote] = useState(editingTx?.note || '');
+  const [txAccount, setTxAccount] = useState<string>(
+    editingTx?.account || (accounts.includes('Готівка') ? 'Готівка' : accounts[0] || 'Готівка'),
+  );
   const [busy, setBusy] = useState(false);
 
   const filtered = categories.filter(c => c.type === (txType === 'Витрати' ? 'expense' : 'income') && !c.name.includes('Очікує'));
@@ -53,8 +57,8 @@ export default function TxModal({
     };
     try {
       const r = editingTx
-        ? await api.put(`/transactions/${editingTx.id}`, payload)
-        : await api.post('/transactions', { ...payload, family_id: familyId, user_id: dbUserId, account: 'Готівка' });
+        ? await api.put(`/transactions/${editingTx.id}`, { ...payload, account: txAccount })
+        : await api.post('/transactions', { ...payload, family_id: familyId, user_id: dbUserId, account: txAccount });
       onSaved(r.data);
       haptic('success');
       toast(editingTx ? '✅ Оновлено' : '✅ Записано');
@@ -103,6 +107,18 @@ export default function TxModal({
             style={{ ...input, flex: 2, fontSize: '20px', fontWeight: 'bold' }} />
           <input type="date" value={txDate} onChange={e => setTxDate(e.target.value)}
             style={{ ...input, flex: 1, backgroundColor: '#fff' }} />
+        </div>
+
+        <div style={{ marginBottom: '15px' }}>
+          <div style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: '6px' }}>Рахунок</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {accounts.map(acc => (
+              <button key={acc} onClick={() => { setTxAccount(acc); haptic('light'); }}
+                style={{ padding: '9px 14px', borderRadius: '20px', border: txAccount === acc ? '2px solid #3498db' : '1px solid #dfe6e9', backgroundColor: txAccount === acc ? '#ebf5fb' : '#f8f9fa', fontSize: '13px', cursor: 'pointer', color: '#2c3e50', fontWeight: txAccount === acc ? 'bold' : 'normal' }}>
+                {acc === 'Готівка' ? '💵 Готівка' : `💳 ${acc}`}
+              </button>
+            ))}
+          </div>
         </div>
 
         <input type="text" placeholder="Що купили? (необов'язково)" value={txTitle} onChange={e => setTxTitle(e.target.value)}

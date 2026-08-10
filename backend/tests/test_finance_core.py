@@ -209,3 +209,47 @@ def test_bank_balances_empty_when_no_tokens(seeded):
     r = client.get(f"/banking/families/{fam.id}/bank-balances", headers=_hdr(fam.id))
     assert r.status_code == 200
     assert r.json() == []
+
+
+# ---------- POST-RELEASE TWEAKS ----------
+
+def test_categorize_preserves_original_user(seeded, db):
+    """Категоризація чужої pending-транзакції НЕ повинна змінювати user_id.
+    Адмін категоризує транзакцію учасника — вона лишається за учасником."""
+    fam, admin, member, cats = seeded["family"], seeded["admin"], seeded["member"], seeded["cats"]
+    # pending-транзакцію створив member
+    tx = make_tx(db, fam.id, member.id, cats["Очікує"].id, 90, "Витрати",
+                 title="❓ Чужі продукти", account="Монобанк", mono_id=None)
+    token = _make_user_token(seeded, admin.id)
+    r = client.put(f"/transactions/{tx.id}", headers={"Authorization": f"Bearer {token}"},
+                   json={"category_id": cats["Продукти"].id})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["category_id"] == cats["Продукти"].id
+    # user_id залишається у member (автор транзакції не перезаписується)
+    assert body["user_id"] == member.id
+    # і навіть якщо спробувати передати user_id в payload — він ігнорується
+    r2 = client.put(f"/transactions/{tx.id}", headers={"Authorization": f"Bearer {token}"},
+                    json={"note": "спроба змінити", "user_id": admin.id, "family_id": 999})
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["user_id"] == member.id
+    assert body2["family_id"] == fam.id
+
+
+def test_stats_cash_by_user(seeded, db):
+    """stats.cash_by_user групує готівку по користувачах сім'ї."""
+    fam, admin, member, cats = seeded["family"], seeded["admin"], seeded["member"], seeded["cats"]
+    # admin: +5000 зарплата, -250 кава  (готівка)
+    make_tx(db, fam.id, admin.id, cats["Зарплата"].id, 5000, "Поповнення", title="Зарплата")
+    make_tx(db, fam.id, admin.id, cats["Кафе"].id, 250, "Витрати", title="Кава")
+    # member: +1000 дохід, -100 витрата (готівка)
+    make_tx(db, fam.id, member.id, cats["Зарплата"].id, 1000, "Поповнення", title="Дохід")
+    make_tx(db, fam.id, member.id, cats["Кафе"].id, 100, "Витрати", title="Кава")
+
+    stats = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()
+    by_user = {u["user_id"]: u for u in stats["cash_by_user"]}
+    assert by_user[admin.id]["balance"] == 4750
+    assert by_user[member.id]["balance"] == 900
+    assert by_user[admin.id]["user_name"] == "Admin"
+    assert stats["balances"]["Готівка"] == 5650  # загальна сума = сума по користувачах

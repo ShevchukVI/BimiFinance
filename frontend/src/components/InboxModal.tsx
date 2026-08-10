@@ -17,7 +17,9 @@ export default function InboxModal({
   const [items, setItems] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
-  const expenseCats = categories.filter(c => c.type === 'expense' && !c.name.includes('Очікує'));
+  const pickableCats = (tx: Transaction) => categories.filter(
+    c => c.type === (tx.type === 'Витрати' ? 'expense' : 'income') && !c.name.includes('Очікує'),
+  );
 
   useEffect(() => {
     (async () => {
@@ -68,11 +70,11 @@ export default function InboxModal({
             <div key={tx.id} style={{ backgroundColor: '#fff', padding: '14px', borderRadius: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', opacity: savingId === tx.id ? 0.5 : 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
                 <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#2c3e50', paddingRight: '8px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.title}</div>
-                <div style={{ fontWeight: 'bold', color: '#e74c3c', whiteSpace: 'nowrap' }}>-{fmt(tx.amount)}</div>
+                <div style={{ fontWeight: 'bold', color: tx.type === 'Витрати' ? '#e74c3c' : '#27ae60', whiteSpace: 'nowrap' }}>{tx.type === 'Витрати' ? '-' : '+'}{fmt(tx.amount)}</div>
               </div>
               <div style={{ fontSize: '11px', color: '#95a5a6', marginBottom: '10px' }}>{tx.date} • {tx.account}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {expenseCats.map(c => (
+                {pickableCats(tx).map(c => (
                   <button key={c.id} onClick={() => assign(tx, c.id)} disabled={savingId === tx.id}
                     style={{ padding: '7px 12px', borderRadius: '20px', border: '1px solid #dfe6e9', backgroundColor: '#f8f9fa', fontSize: '12px', cursor: 'pointer', color: '#2c3e50' }}>
                     {c.name}

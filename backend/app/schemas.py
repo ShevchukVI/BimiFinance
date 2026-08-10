@@ -148,6 +148,12 @@ class JarTopUp(BaseModel):
 class CategoryStat(BaseModel):
     name: str
     amount: float
+class CashUserBalanceOut(BaseModel):
+    user_id: int
+    user_name: str
+    balance: float
+
+
 class FamilyStatsOut(BaseModel):
     income: float
     expense: float
@@ -156,6 +162,8 @@ class FamilyStatsOut(BaseModel):
     pending_count: int = 0
     # Баланси джерел коштів (наразі лише готівка; банк дає реальний баланс через API)
     balances: dict = {}
+    # Готівка, згрупована по користувачах (для відображення per-person)
+    cash_by_user: List[CashUserBalanceOut] = []
 class NoteCreate(BaseModel):
     family_id: int
     content: str
