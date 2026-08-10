@@ -1,4 +1,4 @@
-import { Stats, Transaction, Category, BankUserBalances, fmt } from '../types';
+import { Stats, Transaction, Category, BankUserBalances, fmtCur, curSym } from '../types';
 import TransactionCard from '../components/TransactionCard';
 import EmptyState from '../components/EmptyState';
 
@@ -18,41 +18,64 @@ export default function HomePage({
   const recent = transactions.slice(0, 5);
   const hasBank = bankBalances.length > 0;
 
+  // Валютний брейкдаун місяця: by_currency {code: {income, expense}} або UAH-only fallback.
+  const byCurrency = stats?.by_currency || {};
+  const hasMultiCurrency = Object.keys(byCurrency).length > 1;
+  const mainCur = (Object.keys(byCurrency)[0] || 'UAH');
+  const mainStats = byCurrency[mainCur] || { income: stats?.income || 0, expense: stats?.expense || 0 };
+
+  // Готівка: групуємо по (user, currency).
+  const cashUsers = stats?.cash_by_user || [];
+
+  const statCard = (label: string, value: number, color: string, sign: string) => (
+    <div style={{ flex: 1, backgroundColor: '#fff', padding: '14px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <p style={{ margin: 0, color: '#7f8c8d', fontSize: '11px' }}>{label}</p>
+      <div style={{ color, fontWeight: 'bold', fontSize: '15px', marginTop: '4px' }}>{sign}{fmtCur(value, mainCur)}</div>
+    </div>
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
       {stats && (
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <div style={{ flex: 1, backgroundColor: '#fff', padding: '14px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-            <p style={{ margin: 0, color: '#7f8c8d', fontSize: '11px' }}>📈 Дохід</p>
-            <div style={{ color: '#27ae60', fontWeight: 'bold', fontSize: '15px', marginTop: '4px' }}>+{fmt(stats.income)}</div>
+        <>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {statCard('📈 Дохід', mainStats.income, '#27ae60', '+')}
+            {statCard('📉 Витрати', mainStats.expense, '#e74c3c', '-')}
+            {statCard('💰 Залишок', (mainStats.income - mainStats.expense), '#2c3e50', '')}
           </div>
-          <div style={{ flex: 1, backgroundColor: '#fff', padding: '14px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-            <p style={{ margin: 0, color: '#7f8c8d', fontSize: '11px' }}>📉 Витрати</p>
-            <div style={{ color: '#e74c3c', fontWeight: 'bold', fontSize: '15px', marginTop: '4px' }}>-{fmt(stats.expense)}</div>
-          </div>
-          <div style={{ flex: 1, backgroundColor: '#fff', padding: '14px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-            <p style={{ margin: 0, color: '#7f8c8d', fontSize: '11px' }}>💰 Залишок</p>
-            <div style={{ color: stats.balance >= 0 ? '#2c3e50' : '#e74c3c', fontWeight: 'bold', fontSize: '15px', marginTop: '4px' }}>{fmt(stats.balance)}</div>
-          </div>
-        </div>
-      )}
-
-      {stats && stats.balances && stats.balances['Готівка'] !== undefined && (
-        <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ color: '#7f8c8d', fontSize: '14px' }}>💵 Готівка</span>
-            <span style={{ fontWeight: 'bold', fontSize: '15px', color: stats.balances['Готівка'] >= 0 ? '#2c3e50' : '#e74c3c' }}>{fmt(stats.balances['Готівка'])}</span>
-          </div>
-          {stats.cash_by_user && stats.cash_by_user.length > 1 && (
-            <div style={{ borderTop: '1px solid #f1f2f6', paddingTop: '8px' }}>
-              {stats.cash_by_user.map(u => (
-                <div key={u.user_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
-                  <span style={{ fontSize: '13px', color: '#7f8c8d' }}>👤 {u.user_name}</span>
-                  <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#2c3e50' }}>{fmt(u.balance)}</span>
+          {hasMultiCurrency && (
+            <div style={{ backgroundColor: '#fff', padding: '12px 16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+              {Object.entries(byCurrency).filter(([cur]) => cur !== mainCur).map(([cur, v]) => (
+                <div key={cur} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+                  <span style={{ fontSize: '12px', color: '#7f8c8d' }}>{cur}</span>
+                  <span style={{ fontSize: '12px', color: '#2c3e50' }}>
+                    <span style={{ color: '#27ae60' }}>+{fmtCur(v.income, cur)}</span>
+                    {'  '}
+                    <span style={{ color: '#e74c3c' }}>-{fmtCur(v.expense, cur)}</span>
+                  </span>
                 </div>
               ))}
             </div>
           )}
+        </>
+      )}
+
+      {cashUsers.length > 0 && (
+        <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ color: '#7f8c8d', fontSize: '14px' }}>💵 Готівка</span>
+            <span style={{ fontWeight: 'bold', fontSize: '15px', color: '#2c3e50' }}>
+              {fmtCur(cashUsers.reduce((s, u) => s + u.balance, 0), mainCur)}
+            </span>
+          </div>
+          <div style={{ borderTop: '1px solid #f1f2f6', paddingTop: '8px' }}>
+            {cashUsers.map(u => (
+              <div key={`${u.user_id}-${u.currency || 'UAH'}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+                <span style={{ fontSize: '13px', color: '#7f8c8d' }}>👤 {u.user_name}</span>
+                <span style={{ fontWeight: 'bold', fontSize: '13px', color: '#2c3e50' }}>{fmtCur(u.balance, u.currency || 'UAH')}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -65,7 +88,7 @@ export default function HomePage({
               {u.accounts.map((a, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
                   <span style={{ fontSize: '13px', color: '#2c3e50' }}>{a.name}</span>
-                  <span style={{ fontWeight: 'bold', fontSize: '14px', color: a.balance >= 0 ? '#2c3e50' : '#e74c3c' }}>{fmt(a.balance)}</span>
+                  <span style={{ fontWeight: 'bold', fontSize: '14px', color: a.balance >= 0 ? '#2c3e50' : '#e74c3c' }}>{fmtCur(a.balance, a.currency || 'UAH')}</span>
                 </div>
               ))}
             </div>

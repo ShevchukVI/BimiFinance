@@ -13,6 +13,16 @@ def get_jars(family_id: int, _: None = Depends(require_family), db: Session = De
     return crud.get_jars(db, family_id)
 
 
+@router.get("/families/{family_id}/jars/{jar_id}/transactions", response_model=list[schemas.TransactionOut])
+def get_jar_transactions(family_id: int, jar_id: int, _: None = Depends(require_family),
+                         db: Session = Depends(get_db)):
+    """Історія скарбнички: депозити/зняття (хто, скільки, коли)."""
+    jar = crud.get_jar_by_id(db, jar_id)
+    if not jar or jar.family_id != family_id:
+        raise HTTPException(status_code=404, detail="Jar not found")
+    return crud.get_jar_transactions(db, jar_id)
+
+
 @router.post("/jars", response_model=schemas.JarOut)
 def create_jar(jar: schemas.JarCreate, actor: Actor = Depends(get_actor), db: Session = Depends(get_db)):
     check_family_membership(db, actor, jar.family_id)

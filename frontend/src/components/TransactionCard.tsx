@@ -1,8 +1,9 @@
-import { Transaction, Category, cleanCatName } from '../types';
+import { Transaction, Category, cleanCatName, fmtCur } from '../types';
 
 export default function TransactionCard({ tx, categories, onClick }: { tx: Transaction; categories: Category[]; onClick: () => void }) {
   const cat = categories.find(c => c.id === tx.category_id);
   const catName = cleanCatName(cat?.name);
+  const cur = tx.currency || 'UAH';
   return (
     <div onClick={onClick} style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
       <div style={{ overflow: 'hidden', paddingRight: '10px' }}>
@@ -15,9 +16,9 @@ export default function TransactionCard({ tx, categories, onClick }: { tx: Trans
         </div>
       </div>
       {tx.type === 'Переказ' ? (
-        <div style={{ fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap', color: '#7f8c8d' }}>↔️ {tx.amount} ₴</div>
+        <div style={{ fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap', color: '#7f8c8d' }}>↔️ {fmtCur(tx.amount, cur)}</div>
       ) : (
-        <div style={{ fontWeight: 'bold', fontSize: '16px', whiteSpace: 'nowrap', color: tx.type === 'Витрати' ? '#e74c3c' : '#27ae60' }}>{tx.type === 'Витрати' ? '-' : '+'}{tx.amount} ₴</div>
+        <div style={{ fontWeight: 'bold', fontSize: '16px', whiteSpace: 'nowrap', color: tx.type === 'Витрати' ? '#e74c3c' : '#27ae60' }}>{tx.type === 'Витрати' ? '-' : '+'}{fmtCur(tx.amount, cur)}</div>
       )}
     </div>
   );

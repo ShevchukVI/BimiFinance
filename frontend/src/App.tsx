@@ -14,6 +14,7 @@ import NotesPage from './pages/NotesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 import type { Transaction, Category, Stats, Note, Jar, Tab, FamilyMembership, FamilyUser, Me, BankUserBalances } from './types';
+import { fmtCur } from './types';
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -232,7 +233,7 @@ export default function App() {
             <h2 style={{ color: '#2c3e50', margin: 0, fontSize: '20px' }}>🏦 Скарбнички</h2>
             <button onClick={() => setIsJarModalOpen(true)} style={{ border: 'none', background: 'transparent', color: '#3498db', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>+ Створити</button>
           </div>
-          <JarsPage jars={jars} onTopUp={(id) => setTopupJar(jars.find(j => j.id === id) || null)} onCreate={() => setIsJarModalOpen(true)} />
+          {familyId && <JarsPage jars={jars} familyId={familyId} onTopUp={(id) => setTopupJar(jars.find(j => j.id === id) || null)} onCreate={() => setIsJarModalOpen(true)} />}
         </>}
 
         {activeTab === 'notes' && (
@@ -290,9 +291,9 @@ export default function App() {
             </div>
             <div style={{ textAlign: 'center', marginBottom: '20px' }}>
               {viewingTx.type === 'Переказ' ? (
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#7f8c8d' }}>↔️ {viewingTx.amount} ₴</div>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#7f8c8d' }}>↔️ {fmtCur(viewingTx.amount, viewingTx.currency)}</div>
               ) : (
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: viewingTx.type === 'Витрати' ? '#e74c3c' : '#27ae60' }}>{viewingTx.type === 'Витрати' ? '-' : '+'}{viewingTx.amount} ₴</div>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', color: viewingTx.type === 'Витрати' ? '#e74c3c' : '#27ae60' }}>{viewingTx.type === 'Витрати' ? '-' : '+'}{fmtCur(viewingTx.amount, viewingTx.currency)}</div>
               )}
               <div style={{ color: '#7f8c8d', marginTop: '5px' }}>{categories.find(c => c.id === viewingTx.category_id)?.name || 'Інше'}</div>
             </div>

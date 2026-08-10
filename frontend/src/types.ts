@@ -1,9 +1,9 @@
-export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; user_name?: string | null; }
+export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; user_name?: string | null; currency?: string; jar_id?: number | null; }
 export interface Category { id: number; name: string; icon: string; type: string; }
-export interface CashUserBalance { user_id: number; user_name: string; balance: number; }
-export interface Stats { income: number; expense: number; balance: number; top_categories: { name: string; amount: number }[]; pending_count: number; balances: Record<string, number>; cash_by_user?: CashUserBalance[]; }
+export interface CashUserBalance { user_id: number; user_name: string; balance: number; currency?: string; }
+export interface Stats { income: number; expense: number; balance: number; top_categories: { name: string; amount: number }[]; pending_count: number; balances: Record<string, number>; cash_by_user?: CashUserBalance[]; by_currency?: Record<string, { income: number; expense: number }>; cash_by_currency?: { currency: string; balance: number }[]; }
 export interface Note { id: number; content: string; }
-export interface Jar { id: number; name: string; balance: number; goal: number; }
+export interface Jar { id: number; name: string; balance: number; goal: number; currency?: string; }
 export interface FamilyMembership { family_id: number; name: string; role: string; is_active: boolean; }
 export interface FamilyUser { id: number; tg_id: number | null; name: string; has_mono_token: boolean; role: string | null; }
 export interface BankAccountBalance { name: string; balance: number; currency: string; }
@@ -19,4 +19,15 @@ export const COLORS_AVATAR = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59
 export const cleanCatName = (name?: string) =>
   (name || '').replace(/^[^a-zA-Zа-яА-ЯёЁіІїЇєЄґҐ0-9]+/, '').trim() || 'Інше';
 
+export const CURRENCY_SYMBOLS: Record<string, string> = { UAH: '₴', USD: '$', EUR: '€' };
+
+export const curSym = (currency?: string | null) => CURRENCY_SYMBOLS[currency || 'UAH'] || currency || '₴';
+
 export const fmt = (n: number) => `${n.toLocaleString('uk-UA')} ₴`;
+
+export const fmtCur = (n: number, currency?: string | null) => {
+  const sym = curSym(currency);
+  return `${n.toLocaleString('uk-UA')} ${sym}`;
+};
+
+export const CURRENCIES = ['UAH', 'USD', 'EUR'];

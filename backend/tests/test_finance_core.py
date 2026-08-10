@@ -374,3 +374,22 @@ def test_jar_deposit_not_in_cash_balance(seeded, db):
     jars = client.get(f"/families/{fam.id}/jars", headers=_hdr(fam.id)).json()
     trip = next(j for j in jars if j["id"] == jar_id)
     assert trip["balance"] == 100
+
+
+def test_jar_history_endpoint(seeded, db):
+    """GET /families/{id}/jars/{jar_id}/transactions повертає історію депозитів/зняттів."""
+    fam = seeded["family"]
+    jar = client.post("/jars", headers=BOT_HEADERS,
+                      json={"family_id": fam.id, "name": "Trip", "goal": 5000, "currency": "UAH"})
+    jar_id = jar.json()["id"]
+    client.post(f"/jars/{jar_id}/topup", headers=BOT_HEADERS, json={"amount": 500})
+    client.post(f"/jars/{jar_id}/topup", headers=BOT_HEADERS, json={"amount": 300})
+    client.post(f"/jars/{jar_id}/withdraw", headers=BOT_HEADERS, json={"amount": 200})
+    r = client.get(f"/families/{fam.id}/jars/{jar_id}/transactions", headers=_hdr(fam.id))
+    assert r.status_code == 200
+    txs = r.json()
+    assert len(txs) == 3  # 2 депозити + 1 зняття
+    amounts = sorted(t["amount"] for t in txs)
+    assert amounts == [200, 300, 500]
+    # найновіша спочатку
+    assert txs[0]["date"] >= txs[-1]["date"]

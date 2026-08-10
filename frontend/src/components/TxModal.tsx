@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import api from '../api';
 import { toast } from '../toast';
-import { Transaction, Category, cleanCatName } from '../types';
+import { Transaction, Category, CURRENCIES, cleanCatName } from '../types';
 
 const sheet: React.CSSProperties = {
   position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)',
@@ -41,6 +41,7 @@ export default function TxModal({
   const [txAccount, setTxAccount] = useState<string>(
     editingTx?.account || (accounts.includes('Готівка') ? 'Готівка' : accounts[0] || 'Готівка'),
   );
+  const [txCurrency, setTxCurrency] = useState<string>(editingTx?.currency || 'UAH');
   const [busy, setBusy] = useState(false);
 
   const filtered = categories.filter(c => c.type === (txType === 'Витрати' ? 'expense' : 'income') && !c.name.includes('Очікує'));
@@ -53,7 +54,7 @@ export default function TxModal({
     const payload = {
       amount: amountNum, type: txType, category_id: txCategoryId,
       title: txTitle.trim() || cleanCatName(categories.find(c => c.id === txCategoryId)?.name),
-      date: txDate, note: txNote.trim(),
+      date: txDate, note: txNote.trim(), currency: txCurrency,
     };
     try {
       const r = editingTx
@@ -116,6 +117,18 @@ export default function TxModal({
               <button key={acc} onClick={() => { setTxAccount(acc); haptic('light'); }}
                 style={{ padding: '9px 14px', borderRadius: '20px', border: txAccount === acc ? '2px solid #3498db' : '1px solid #dfe6e9', backgroundColor: txAccount === acc ? '#ebf5fb' : '#f8f9fa', fontSize: '13px', cursor: 'pointer', color: '#2c3e50', fontWeight: txAccount === acc ? 'bold' : 'normal' }}>
                 {acc === 'Готівка' ? '💵 Готівка' : `💳 ${acc}`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '15px' }}>
+          <div style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: '6px' }}>Валюта</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {CURRENCIES.map(cur => (
+              <button key={cur} onClick={() => { setTxCurrency(cur); haptic('light'); }}
+                style={{ padding: '9px 14px', borderRadius: '20px', border: txCurrency === cur ? '2px solid #3498db' : '1px solid #dfe6e9', backgroundColor: txCurrency === cur ? '#ebf5fb' : '#f8f9fa', fontSize: '13px', cursor: 'pointer', color: '#2c3e50', fontWeight: txCurrency === cur ? 'bold' : 'normal' }}>
+                {cur}
               </button>
             ))}
           </div>

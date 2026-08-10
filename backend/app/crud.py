@@ -483,6 +483,13 @@ def get_jars(db: Session, family_id: int):
 
 def get_jar_by_id(db: Session, jar_id: int): return db.query(models.Jar).filter(models.Jar.id == jar_id).first()
 
+def get_jar_transactions(db: Session, jar_id: int):
+    """Історія скарбнички: транзакції з jar_id, від нових до старих."""
+    return (db.query(models.Transaction)
+            .filter(models.Transaction.jar_id == jar_id)
+            .order_by(models.Transaction.date.desc(), models.Transaction.id.desc())
+            .all())
+
 def create_jar(db: Session, family_id: int, name: str, goal: float, currency: str = DEFAULT_CURRENCY):
     obj = models.Jar(family_id=family_id, name=name, balance=0.0, goal=goal,
                      currency=currency or DEFAULT_CURRENCY)
