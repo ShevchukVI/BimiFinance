@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
-from app.core.deps import Actor, get_actor, require_family
+from app.core.deps import Actor, check_family_membership, get_actor, require_family
 from app.database import get_db
 
 router = APIRouter(tags=["jars"])
@@ -15,7 +15,7 @@ def get_jars(family_id: int, _: None = Depends(require_family), db: Session = De
 
 @router.post("/jars", response_model=schemas.JarOut)
 def create_jar(jar: schemas.JarCreate, actor: Actor = Depends(get_actor), db: Session = Depends(get_db)):
-    require_family(jar.family_id, actor)
+    check_family_membership(db, actor, jar.family_id)
     return crud.create_jar(db, jar.family_id, jar.name, jar.goal)
 
 
@@ -25,8 +25,7 @@ def topup_jar(jar_id: int, payload: schemas.JarTopUp, actor: Actor = Depends(get
     jar = crud.get_jar_by_id(db, jar_id)
     if not jar:
         raise HTTPException(status_code=404, detail="Jar not found")
-    if actor.kind == "user":
-        require_family(jar.family_id, actor)
+    check_family_membership(db, actor, jar.family_id)
     updated = crud.topup_jar(db, jar_id, payload.amount)
     if not updated:
         raise HTTPException(status_code=404, detail="Jar not found")

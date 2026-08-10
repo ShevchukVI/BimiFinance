@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
-from app.core.deps import Actor, get_actor, require_family
+from app.core.deps import Actor, check_family_membership, get_actor, require_family
 from app.database import get_db
 
 router = APIRouter(tags=["transactions"])
@@ -27,7 +27,7 @@ def create_transaction(tx: schemas.TransactionCreate, actor: Actor = Depends(get
     if actor.kind == "bot":
         family_id, user_id = tx.family_id, tx.user_id
     else:
-        require_family(tx.family_id, actor)
+        check_family_membership(db, actor, tx.family_id)
         family_id, user_id = actor.family_id, actor.user_id  # family_id never trusted from body
     return crud.create_transaction(db, family_id, user_id, tx.category_id, tx.amount, tx.type, tx.title,
                                    tx.note, tx.account, tx.date, tx.mono_id)
@@ -40,7 +40,7 @@ def create_transfer(tx: schemas.TransferCreate, actor: Actor = Depends(get_actor
     if actor.kind == "bot":
         family_id, user_id = tx.family_id, tx.user_id
     else:
-        require_family(tx.family_id, actor)
+        check_family_membership(db, actor, tx.family_id)
         family_id, user_id = actor.family_id, actor.user_id
     if tx.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
@@ -60,7 +60,7 @@ def update_transaction(tx_id: int, payload: schemas.TransactionUpdate, actor: Ac
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
     if actor.kind == "user":
-        require_family(tx.family_id, actor)
+        check_family_membership(db, actor, tx.family_id)
     return crud.update_transaction(db, tx_id, payload.model_dump(exclude_unset=True))
 
 
@@ -71,7 +71,7 @@ def update_tx_by_mono(mono_id: str, payload: schemas.TransactionUpdate, actor: A
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
     if actor.kind == "user":
-        require_family(tx.family_id, actor)
+        check_family_membership(db, actor, tx.family_id)
     return crud.update_tx_by_mono(db, mono_id, payload.model_dump(exclude_unset=True))
 
 
@@ -81,5 +81,5 @@ def delete_transaction(tx_id: int, actor: Actor = Depends(get_actor), db: Sessio
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
     if actor.kind == "user":
-        require_family(tx.family_id, actor)
+        check_family_membership(db, actor, tx.family_id)
     crud.delete_transaction(db, tx_id)

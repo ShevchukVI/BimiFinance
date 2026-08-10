@@ -1,5 +1,6 @@
 import { Stats, Transaction, Category, fmt } from '../types';
 import TransactionCard from '../components/TransactionCard';
+import EmptyState from '../components/EmptyState';
 
 export default function HomePage({
   stats, transactions, categories, onOpenInbox, onSeeAll, onAdd, onView,
@@ -57,12 +58,13 @@ export default function HomePage({
       </div>
 
       {recent.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '35px 20px', backgroundColor: '#fff', borderRadius: '16px' }}>
-          <div style={{ fontSize: '42px', marginBottom: '10px' }}>💸</div>
-          <p style={{ color: '#2c3e50', fontWeight: 'bold', margin: '0 0 6px 0' }}>Поки порожньо</p>
-          <p style={{ color: '#7f8c8d', fontSize: '13px', margin: '0 0 15px 0' }}>Додай першу витрату — або просто напиши боту «150 такси»</p>
-          <button onClick={onAdd} style={{ padding: '12px 24px', backgroundColor: '#3498db', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer' }}>+ Додати транзакцію</button>
-        </div>
+        <EmptyState
+          emoji="💸"
+          title="Тут з'являться ваші операції"
+          subtitle="Додайте першу витрату або дохід — натисніть кнопку нижче, або напишіть боту «150 такси»."
+          actionLabel="+ Додати транзакцію"
+          onAction={onAdd}
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {recent.map(tx => <TransactionCard key={tx.id} tx={tx} categories={categories} onClick={() => onView(tx)} />)}

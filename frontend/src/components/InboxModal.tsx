@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
 import { toast } from '../toast';
+import EmptyState from './EmptyState';
 import { Transaction, Category, fmt } from '../types';
 
 // Inbox Zero у Mini App: нерозібрані транзакції (категорія «Очікує»)
@@ -54,11 +55,11 @@ export default function InboxModal({
         {loading && <p style={{ textAlign: 'center', color: '#7f8c8d' }}>⏳ Завантаження...</p>}
 
         {!loading && items.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '30px 10px' }}>
-            <div style={{ fontSize: '42px', marginBottom: '10px' }}>🎉</div>
-            <p style={{ color: '#2c3e50', fontWeight: 'bold', margin: 0 }}>Все чисто!</p>
-            <p style={{ color: '#7f8c8d', fontSize: '13px' }}>Нерозібраних транзакцій немає</p>
-          </div>
+          <EmptyState
+            emoji="🎉"
+            title="Все розібрано!"
+            subtitle="Нерозібраних транзакцій немає. Нові витрати з Monobank з'являться тут автоматично."
+          />
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

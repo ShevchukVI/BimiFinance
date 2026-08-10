@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
-from app.core.deps import Actor, get_actor, require_family
+from app.core.deps import Actor, check_family_membership, get_actor, require_family
 from app.database import get_db
 
 router = APIRouter(tags=["categories"])
@@ -16,5 +16,5 @@ def get_categories(family_id: int, _: None = Depends(require_family), db: Sessio
 @router.post("/categories", response_model=schemas.CategoryOut)
 def create_category(cat: schemas.CategoryCreate, actor: Actor = Depends(get_actor),
                     db: Session = Depends(get_db)):
-    require_family(cat.family_id, actor)
+    check_family_membership(db, actor, cat.family_id)
     return crud.create_category(db, cat.family_id, cat.icon, cat.name, cat.color, cat.type)

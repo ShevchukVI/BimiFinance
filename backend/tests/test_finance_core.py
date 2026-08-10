@@ -114,3 +114,48 @@ def test_note_update(seeded, db):
     body = r.json()
     assert body["note"] == "цибуля 200 г, морква 500 г"
     assert body["title"] == "Кава"  # title не змінюється
+
+
+# ---------- USER AUTH: Mini App категоризація (регресія 500) ----------
+
+def _make_user_token(seeded, user_id):
+    """JWT для Mini App user (імітація Telegram initData flow)."""
+    from app.core.security import create_access_token
+    tg_id = seeded["admin"].tg_id
+    return create_access_token(tg_id, user_id, seeded["family"].id, "admin")
+
+
+def test_user_categorize_pending_no_500(seeded, db):
+    """Користувач Mini App має мати можливість категоризувати pending-транзакцію.
+    Регресія: 'Depends object has no attribute query' -> 500."""
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    tx = make_tx(db, fam.id, admin.id, cats["Очікує"].id, 77, "Витрати",
+                 title="❓ Тест", account="Монобанк", mono_id=None)
+    token = _make_user_token(seeded, admin.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = client.put(f"/transactions/{tx.id}", headers=headers,
+                   json={"category_id": cats["Продукти"].id})
+    assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text}"
+    assert r.json()["category_id"] == cats["Продукти"].id
+    # транзакція більше не pending
+    assert client.get(f"/families/{fam.id}/pending", headers=_hdr(fam.id)).json() == []
+
+
+def test_user_create_transaction_no_500(seeded):
+    """Створення транзакції Mini App user не має падати (регресія require_family)."""
+    fam = seeded["family"]
+    token = _make_user_token(seeded, seeded["admin"].id)
+    r = client.post("/transactions", headers={"Authorization": f"Bearer {token}"}, json={
+        "family_id": fam.id, "user_id": seeded["admin"].id, "category_id": seeded["cats"]["Кафе"].id,
+        "amount": 150, "type": "Витрати", "title": "Кава", "account": "Готівка",
+        "date": "2026-08-10"})
+    assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text}"
+
+
+def test_user_create_note_no_500(seeded):
+    fam = seeded["family"]
+    token = _make_user_token(seeded, seeded["admin"].id)
+    r = client.post("/notes", headers={"Authorization": f"Bearer {token}"},
+                    json={"family_id": fam.id, "content": "тест"})
+    assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text}"

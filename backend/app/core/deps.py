@@ -72,6 +72,13 @@ def _target_family(x_family_id: Optional[int], actor: Actor) -> int:
 
 
 def require_family(family_id: int, actor: Actor = Depends(get_actor), db: Session = Depends(get_db)):
+    check_family_membership(db, actor, family_id)
+
+
+def check_family_membership(db: Session, actor: Actor, family_id: int) -> None:
+    """Пряма (не-Depends) перевірка членства. Бот пропускається.
+    Використовувати ВСЕРЕДИНІ хендлерів, де db уже отримано через Depends(get_db).
+    Не викликати require_family(...) як звичайну функцію — це 500."""
     if actor.kind == "bot":
         return
     if not crud.is_family_member(db, actor.user_id, family_id):
@@ -79,6 +86,11 @@ def require_family(family_id: int, actor: Actor = Depends(get_actor), db: Sessio
 
 
 def require_family_admin(family_id: int, actor: Actor = Depends(get_actor), db: Session = Depends(get_db)):
+    check_family_admin(db, actor, family_id)
+
+
+def check_family_admin(db: Session, actor: Actor, family_id: int) -> None:
+    """Пряма (не-Depends) перевірка ролі адміна. Бот пропускається."""
     if actor.kind == "bot":
         return
     role = crud.get_membership_role(db, actor.user_id, family_id)

@@ -263,11 +263,16 @@ export default function App() {
               <button onClick={() => setViewingTx(null)} style={{ border: 'none', background: 'transparent', fontSize: '24px', color: '#95a5a6', cursor: 'pointer' }}>×</button>
             </div>
             <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: viewingTx.type === 'Витрати' ? '#e74c3c' : '#27ae60' }}>{viewingTx.type === 'Витрати' ? '-' : '+'}{viewingTx.amount} ₴</div>
+              {viewingTx.type === 'Переказ' ? (
+                <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#7f8c8d' }}>↔️ {viewingTx.amount} ₴</div>
+              ) : (
+                <div style={{ fontSize: '32px', fontWeight: 'bold', color: viewingTx.type === 'Витрати' ? '#e74c3c' : '#27ae60' }}>{viewingTx.type === 'Витрати' ? '-' : '+'}{viewingTx.amount} ₴</div>
+              )}
               <div style={{ color: '#7f8c8d', marginTop: '5px' }}>{categories.find(c => c.id === viewingTx.category_id)?.name || 'Інше'}</div>
             </div>
             <div style={{ backgroundColor: '#f8f9fa', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
-              <p style={{ margin: '0 0 10px 0', color: '#2c3e50', fontSize: '15px', wordBreak: 'break-word' }}><b>Опис:</b> {viewingTx.title}</p>
+              <p style={{ margin: '0 0 10px 0', color: '#2c3e50', fontSize: '15px', wordBreak: 'break-word' }}><b>Назва:</b> {viewingTx.title}</p>
+              {viewingTx.note && <p style={{ margin: '0 0 10px 0', color: '#7f8c8d', fontSize: '13px', wordBreak: 'break-word' }}><b>Коментар:</b> {viewingTx.note}</p>}
               <p style={{ margin: '0 0 5px 0', color: '#7f8c8d', fontSize: '13px' }}><b>Рахунок:</b> {viewingTx.account}</p>
               <p style={{ margin: '0', color: '#7f8c8d', fontSize: '13px' }}><b>Дата:</b> {viewingTx.date}</p>
             </div>

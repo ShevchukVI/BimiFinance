@@ -120,6 +120,17 @@ export default function SettingsPage({
       </div>
 
       <div style={cardStyle}>
+        <h3 style={{ margin: '0 0 10px 0', color: '#2c3e50' }}>📤 Експорт даних</h3>
+        <p style={{ margin: '0 0 15px 0', color: '#7f8c8d', fontSize: '13px' }}>
+          Вивантаж свої транзакції у файл для зручного аналізу.
+        </p>
+        <button
+          onClick={() => toast("Функція з'явиться в наступних оновленнях")}
+          style={{ width: '100%', padding: '14px', backgroundColor: '#27ae60', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer' }}
+        >📊 Експорт в Excel (Скоро)</button>
+      </div>
+
+      <div style={cardStyle}>
         <h3 style={{ margin: '0 0 10px 0', color: '#2c3e50' }}>💳 Monobank Автопілот</h3>
         {hasMonoToken && !showTokenInput ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>

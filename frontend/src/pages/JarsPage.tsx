@@ -1,4 +1,5 @@
 import { Jar, fmt } from '../types';
+import EmptyState from '../components/EmptyState';
 
 export default function JarsPage({
   jars, onTopUp, onCreate
@@ -9,12 +10,13 @@ export default function JarsPage({
 }) {
   if (jars.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: '#fff', borderRadius: '16px' }}>
-        <div style={{ fontSize: '42px', marginBottom: '10px' }}>🏦</div>
-        <p style={{ color: '#2c3e50', fontWeight: 'bold', margin: '0 0 6px 0' }}>Цілей ще немає</p>
-        <p style={{ color: '#7f8c8d', fontSize: '13px', margin: '0 0 15px 0' }}>Скарбничка допомагає відкладати на конкретну мету</p>
-        <button onClick={onCreate} style={{ padding: '12px 24px', backgroundColor: '#3498db', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer' }}>+ Створити ціль</button>
-      </div>
+      <EmptyState
+        emoji="🏦"
+        title="У вас ще немає цілей"
+        subtitle="Скарбничка допомагає відкладати на конкретну мрію — відпустку, техніку чи подушку безпеки."
+        actionLabel="+ Створити ціль"
+        onAction={onCreate}
+      />
     );
   }
   return (

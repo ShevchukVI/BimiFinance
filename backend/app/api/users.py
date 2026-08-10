@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.core import security
-from app.core.deps import Actor, get_actor, require_family_admin, require_user
+from app.core.deps import Actor, check_family_admin, get_actor, require_family_admin, require_user
 from app.database import get_db
 
 router = APIRouter(tags=["users"])
@@ -11,8 +11,7 @@ router = APIRouter(tags=["users"])
 
 @router.post("/users", response_model=schemas.UserOut)
 def create_user(payload: schemas.UserCreate, actor: Actor = Depends(get_actor), db: Session = Depends(get_db)):
-    if actor.kind == "user":
-        require_family_admin(payload.family_id, actor)
+    check_family_admin(db, actor, payload.family_id)
     mono_enc = security.encrypt_secret(payload.mono_token) if payload.mono_token else None
     return crud.create_user_in_family(db, payload.family_id, payload.name, payload.tg_id, mono_enc, payload.role)
 
