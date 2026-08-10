@@ -1,0 +1,4 @@
+# DEV-ONLY залежності (тести). НЕ встановлювати в production image.
+-r requirements.txt
+pytest
+httpx

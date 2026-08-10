@@ -4,6 +4,12 @@ from sqlalchemy import extract
 from sqlalchemy.orm import Session
 from app import models
 
+# --- Джерела коштів / типи ---
+ACCOUNT_CASH = "Готівка"
+TYPE_INCOME = "Поповнення"
+TYPE_EXPENSE = "Витрати"
+TYPE_TRANSFER = "Переказ"
+
 
 def _attach_derived(db: Session, user, family_id: int = None):
     user.has_mono_token = bool(user.mono_token)
@@ -197,17 +203,62 @@ def get_family_stats(db: Session, family_id: int):
         extract('year', models.Transaction.date) == now.year,
         extract('month', models.Transaction.date) == now.month
     ).all()
-    income = sum(t.amount for t in txs if t.type == "Поповнення" or "Дохід" in t.type)
-    expense = sum(t.amount for t in txs if t.type == "Витрати")
+    income = sum(t.amount for t in txs if t.type == TYPE_INCOME or "Дохід" in t.type)
+    expense = sum(t.amount for t in txs if t.type == TYPE_EXPENSE)
     cats = {}
     for t in txs:
-        if t.type == "Витрати":
+        if t.type == TYPE_EXPENSE:
             cat_name = t.category.name if t.category else "Інше"
             cats[cat_name] = cats.get(cat_name, 0) + t.amount
     top_cats = [{"name": k, "amount": v} for k, v in cats.items()]
     top_cats.sort(key=lambda x: x["amount"], reverse=True)
     return {"income": income, "expense": expense, "balance": income - expense,
-            "top_categories": top_cats, "pending_count": count_pending_transactions(db, family_id)}
+            "top_categories": top_cats, "pending_count": count_pending_transactions(db, family_id),
+            "balances": {ACCOUNT_CASH: get_account_balance(db, family_id, ACCOUNT_CASH)}}
+
+
+def get_account_balance(db: Session, family_id: int, account: str) -> float:
+    """Баланс джерела коштів (наприклад, готівки) за всіма транзакціями сім'ї.
+    Поповнення: +сума; Витрати: -сума; Переказ: зігнована сума (-from / +to).
+    Банківські рахунки так НЕ рахуємо — реальний баланс дає банківський API."""
+    rows = (db.query(models.Transaction.type, models.Transaction.amount)
+            .filter(models.Transaction.family_id == family_id,
+                    models.Transaction.account == account).all())
+    bal = 0.0
+    for t_type, amt in rows:
+        if t_type == TYPE_INCOME:
+            bal += amt
+        elif t_type == TYPE_EXPENSE:
+            bal -= amt
+        elif t_type == TYPE_TRANSFER:
+            bal += amt  # перекази зберігаються зі знаком
+    return round(bal, 2)
+
+
+def create_transfer(db: Session, family_id: int, user_id: int, amount: float,
+                    from_account: str, to_account: str, date=None, mono_id: str = None):
+    """Переказ між джерелами коштів (наприклад, Monobank → Готівка при знятті).
+    Зберігається як пара ЗІГНОВАНИХ транзакцій типу 'Переказ' (-from / +to),
+    які НЕ впливають на доходи/витрати в статистиці. category_id = NULL."""
+    date = date or datetime.now().date()
+    if mono_id:  # dedup для банківських вебхуків
+        existing = db.query(models.Transaction).filter(models.Transaction.mono_id == mono_id).first()
+        if existing:
+            return None
+    out_row = models.Transaction(family_id=family_id, user_id=user_id, category_id=None,
+                                 amount=-amount, type=TYPE_TRANSFER,
+                                 title=f"Переказ → {to_account}", account=from_account,
+                                 mono_id=mono_id, date=date)
+    in_row = models.Transaction(family_id=family_id, user_id=user_id, category_id=None,
+                                amount=amount, type=TYPE_TRANSFER,
+                                title=f"Переказ ← {from_account}", account=to_account,
+                                mono_id=None, date=date)
+    db.add(out_row)
+    db.add(in_row)
+    db.commit()
+    db.refresh(out_row)
+    db.refresh(in_row)
+    return [out_row, in_row]
 
 
 def _pending_query(db: Session, family_id: int):

@@ -73,13 +73,22 @@ class TransactionUpdate(BaseModel):
     amount: Optional[float] = None
     type: Optional[str] = None
     title: Optional[str] = None
+    note: Optional[str] = None
     category_id: Optional[int] = None
     date: Optional[date] = None
+class TransferCreate(BaseModel):
+    """Переказ між джерелами коштів (Cash ↔ Bank). Не дохід/витрата."""
+    family_id: int
+    user_id: Optional[int] = None
+    amount: float
+    from_account: str
+    to_account: str
+    mono_id: Optional[str] = None  # для дедуплікації банківських вебхуків
 class TransactionOut(BaseModel):
     id: int
     family_id: int
     user_id: int
-    category_id: int
+    category_id: Optional[int]  # NULL у переказів (тип 'Переказ')
     amount: float
     type: str
     title: str
@@ -110,6 +119,8 @@ class FamilyStatsOut(BaseModel):
     balance: float
     top_categories: List[CategoryStat]
     pending_count: int = 0
+    # Баланси джерел коштів (наразі лише готівка; банк дає реальний баланс через API)
+    balances: dict = {}
 class NoteCreate(BaseModel):
     family_id: int
     content: str
