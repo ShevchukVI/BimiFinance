@@ -196,7 +196,8 @@ def main():
                 family_id=family.id, user_id=user.id,
                 category_id=cats[full_name].id, amount=amount, type=ctype,
                 title=title, account=account,
-                date=today - timedelta(days=days_ago), mono_id=mono_id)
+                date=today - timedelta(days=days_ago), mono_id=mono_id,
+                currency="UAH")
             db.add(tx)
             db.commit()
 
@@ -220,8 +221,16 @@ def main():
         print(f"Transactions: {len(TXS)} + 2 transfers")
 
         # --- Скарбнички + нотатка ---
+        # Баланс скарбничок тепер динамічний — створюємо jar-транзакції поповнення.
         for name, balance, goal in JARS:
-            db.add(models.Jar(family_id=family.id, name=name, balance=balance, goal=goal))
+            jar = models.Jar(family_id=family.id, name=name, balance=0.0, goal=goal, currency="UAH")
+            db.add(jar)
+            db.flush()
+            db.add(models.Transaction(
+                family_id=family.id, user_id=real.id, category_id=None,
+                amount=balance, type="Поповнення",
+                title=f"Початковий баланс: {name}", account="Готівка",
+                date=today - timedelta(days=20), currency="UAH", jar_id=jar.id))
         db.add(models.Note(family_id=family.id, content=NOTES))
         db.commit()
         print("Jars/Notes: 2 jars, 1 note")

@@ -30,7 +30,8 @@ def create_transaction(tx: schemas.TransactionCreate, actor: Actor = Depends(get
         check_family_membership(db, actor, tx.family_id)
         family_id, user_id = actor.family_id, actor.user_id  # family_id never trusted from body
     return crud.create_transaction(db, family_id, user_id, tx.category_id, tx.amount, tx.type, tx.title,
-                                   tx.note, tx.account, tx.date, tx.mono_id)
+                                   tx.note, tx.account, tx.date, tx.mono_id,
+                                   currency=tx.currency, jar_id=tx.jar_id)
 
 
 @router.post("/transactions/transfer", response_model=list[schemas.TransactionOut])
@@ -47,7 +48,7 @@ def create_transfer(tx: schemas.TransferCreate, actor: Actor = Depends(get_actor
     if tx.from_account == tx.to_account:
         raise HTTPException(status_code=400, detail="Accounts must differ")
     pair = crud.create_transfer(db, family_id, user_id, tx.amount, tx.from_account,
-                                tx.to_account, mono_id=tx.mono_id)
+                                tx.to_account, mono_id=tx.mono_id, currency=tx.currency)
     if pair is None:  # дубль за mono_id
         raise HTTPException(status_code=409, detail="Transfer already exists")
     return pair

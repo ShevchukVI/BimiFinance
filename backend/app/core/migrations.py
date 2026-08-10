@@ -52,3 +52,42 @@ def run_migrations():
             conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS family_id"))
         if "role" in user_cols:
             conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS role"))
+
+        # --- Phase 2: Multi-currency + Deep Jars ---
+        # 1) transactions.currency (default UAH)
+        conn.execute(text(
+            "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(8) NOT NULL DEFAULT 'UAH'"
+        ))
+        # 2) transactions.jar_id (FK, nullable)
+        conn.execute(text(
+            "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS jar_id INTEGER REFERENCES jars(id)"
+        ))
+        # 3) jars.currency (default UAH)
+        conn.execute(text(
+            "ALTER TABLE jars ADD COLUMN IF NOT EXISTS currency VARCHAR(8) NOT NULL DEFAULT 'UAH'"
+        ))
+
+        # Backfill: переносимо історичний баланс скарбничок у синтетичні транзакції
+        # поповнення (type='Поповнення', jar_id=<id>), щоб динамічний баланс
+        # (SUM amount WHERE jar_id=...) збігався зі старим збереженим balance.
+        # Ідемпотентно: додаємо лише якщо для скарбнички ще немає жодної jar-транзакції.
+        jars = conn.execute(text(
+            "SELECT j.id, j.family_id, j.balance, j.name FROM jars j"
+        )).fetchall()
+        for jar in jars:
+            jar_id, fam_id, bal, name = jar
+            if not bal:
+                continue
+            has_tx = conn.execute(text(
+                "SELECT 1 FROM transactions WHERE jar_id = :jid LIMIT 1"
+            ), {"jid": jar_id}).fetchone()
+            if has_tx:
+                continue
+            owner = conn.execute(text(
+                "SELECT user_id FROM family_members WHERE family_id = :fid ORDER BY user_id LIMIT 1"
+            ), {"fid": fam_id}).fetchone()
+            owner_id = owner[0] if owner else None
+            conn.execute(text(
+                "INSERT INTO transactions (family_id, user_id, category_id, amount, type, title, note, account, mono_id, date, currency, jar_id) "
+                "VALUES (:fam, :uid, NULL, :amt, 'Поповнення', :title, '', 'Готівка', NULL, CURRENT_DATE, 'UAH', :jid)"
+            ), {"fam": fam_id, "uid": owner_id, "amt": bal, "title": f"Початковий баланс: {name}", "jid": jar_id})

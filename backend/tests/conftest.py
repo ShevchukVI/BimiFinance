@@ -83,13 +83,13 @@ def seeded(db):
 
 
 def make_tx(db, family_id, user_id, category_id, amount, t_type, title="t",
-            account="Готівка", date="2026-08-05", mono_id=None):
+            account="Готівка", date="2026-08-05", mono_id=None, currency="UAH"):
     from datetime import datetime as _dt
     if isinstance(date, str):
         date = _dt.strptime(date, "%Y-%m-%d").date()
     tx = models.Transaction(family_id=family_id, user_id=user_id, category_id=category_id,
                             amount=amount, type=t_type, title=title, account=account,
-                            date=date, mono_id=mono_id)
+                            date=date, mono_id=mono_id, currency=currency)
     db.add(tx)
     db.commit()
     db.refresh(tx)

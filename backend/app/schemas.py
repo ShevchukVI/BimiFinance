@@ -69,12 +69,15 @@ class TransactionCreate(BaseModel):
     account: str
     mono_id: Optional[str] = None
     date: date
+    currency: str = "UAH"
+    jar_id: Optional[int] = None  # поповнення/зняття до/з скарбнички
 class TransactionUpdate(BaseModel):
     amount: Optional[float] = None
     type: Optional[str] = None
     title: Optional[str] = None
     note: Optional[str] = None
     category_id: Optional[int] = None
+    currency: Optional[str] = None
     # NOTE: pydantic 2.13.4 баг — 'Optional[date] = None' завжди падає з
     # 'none_required' для будь-якого введення. Тому приймаємо str і парсимо
     # у crud-шарі (див. crud._coerce_date).
@@ -87,6 +90,7 @@ class TransferCreate(BaseModel):
     from_account: str
     to_account: str
     mono_id: Optional[str] = None  # для дедуплікації банківських вебхуків
+    currency: str = "UAH"
 class TransactionOut(BaseModel):
     id: int
     family_id: int
@@ -99,6 +103,8 @@ class TransactionOut(BaseModel):
     account: str
     mono_id: Optional[str]
     date: date
+    currency: str = "UAH"
+    jar_id: Optional[int] = None
     user_name: Optional[str] = None  # ім'я автора (атрибуція в Mini App)
     model_config = {"from_attributes": True}
 
@@ -136,12 +142,14 @@ class JarCreate(BaseModel):
     family_id: int
     name: str
     goal: float
+    currency: str = "UAH"
 class JarOut(BaseModel):
     id: int
     family_id: int
     name: str
     balance: float
     goal: float
+    currency: str = "UAH"
     model_config = {"from_attributes": True}
 class JarTopUp(BaseModel):
     amount: float
@@ -151,6 +159,12 @@ class CategoryStat(BaseModel):
 class CashUserBalanceOut(BaseModel):
     user_id: int
     user_name: str
+    balance: float
+    currency: str = "UAH"
+
+
+class CashByCurrencyOut(BaseModel):
+    currency: str
     balance: float
 
 
@@ -164,6 +178,10 @@ class FamilyStatsOut(BaseModel):
     balances: dict = {}
     # Готівка, згрупована по користувачах (для відображення per-person)
     cash_by_user: List[CashUserBalanceOut] = []
+    # Дохід/витрати по валютах (місяць): {"UAH": {"income": .., "expense": ..}, "USD": {...}}
+    by_currency: dict = {}
+    # Готівка по валютах (увесь час): [{"currency": "UAH", "balance": ..}, ...]
+    cash_by_currency: List[CashByCurrencyOut] = []
 class NoteCreate(BaseModel):
     family_id: int
     content: str

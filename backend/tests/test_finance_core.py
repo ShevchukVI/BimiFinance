@@ -253,3 +253,103 @@ def test_stats_cash_by_user(seeded, db):
     assert by_user[member.id]["balance"] == 900
     assert by_user[admin.id]["user_name"] == "Admin"
     assert stats["balances"]["Готівка"] == 5650  # загальна сума = сума по користувачах
+
+
+# ---------- PHASE 2: MULTI-CURRENCY + DEEP JARS ----------
+
+def _mk_jars(db, seeded, name="Відпустка"):
+    fam = seeded["family"]
+    r = client.post("/jars", headers=BOT_HEADERS,
+                    json={"family_id": fam.id, "name": name, "goal": 30000, "currency": "UAH"})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_create_jar_defaults_currency_and_dynamic_balance(seeded, db):
+    fam = seeded["family"]
+    jar = _mk_jars(db, seeded)
+    assert jar["currency"] == "UAH"
+    assert jar["balance"] == 0.0  # динамічний баланс без транзакцій = 0
+
+
+def test_jar_topup_and_dynamic_balance(seeded, db):
+    fam = seeded["family"]
+    jar = _mk_jars(db, seeded)
+    # поповнення через API
+    r = client.post(f"/jars/{jar['id']}/topup", headers=BOT_HEADERS, json={"amount": 7500})
+    assert r.status_code == 200, r.text
+    assert r.json()["balance"] == 7500
+    # повторний get_jars теж рахує динамічно
+    jars = client.get(f"/families/{fam.id}/jars", headers=_hdr(fam.id)).json()
+    assert jars[0]["balance"] == 7500
+
+
+def test_jar_withdraw(seeded, db):
+    fam = seeded["family"]
+    jar = _mk_jars(db, seeded)
+    client.post(f"/jars/{jar['id']}/topup", headers=BOT_HEADERS, json={"amount": 5000})
+    r = client.post(f"/jars/{jar['id']}/withdraw", headers=BOT_HEADERS, json={"amount": 2000})
+    assert r.status_code == 200, r.text
+    assert r.json()["balance"] == 3000
+
+
+def test_jar_transactions_excluded_from_stats(seeded, db):
+    """Поповнення скарбнички НЕ має збільшувати місячний дохід/витрату."""
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    make_tx(db, fam.id, admin.id, cats["Зарплата"].id, 5000, "Поповнення", title="Зарплата")
+    jar = _mk_jars(db, seeded)
+    client.post(f"/jars/{jar['id']}/topup", headers=BOT_HEADERS, json={"amount": 3000})
+    stats = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()
+    assert stats["income"] == 5000  # 3000 у скарбничку не рахується
+    assert stats["expense"] == 0
+
+
+def test_stats_by_currency(seeded, db):
+    """Місячні дохід/витрати групуються по валютах; income/expense — у UAH."""
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    # UAH дохід 5000, UAH витрата 250
+    make_tx(db, fam.id, admin.id, cats["Зарплата"].id, 5000, "Поповнення", title="Зарплата")
+    make_tx(db, fam.id, admin.id, cats["Кафе"].id, 250, "Витрати", title="Кава")
+    # USD дохід 1000, USD витрата 0
+    make_tx(db, fam.id, admin.id, cats["Зарплата"].id, 1000, "Поповнення", title="Зарплата USD", currency="USD")
+    make_tx(db, fam.id, admin.id, cats["Кафе"].id, 50, "Витрати", title="Кава USD", currency="USD")
+
+    stats = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()
+    assert stats["income"] == 5000  # UAH only
+    assert stats["expense"] == 250
+    assert stats["by_currency"]["UAH"] == {"income": 5000.0, "expense": 250.0}
+    assert stats["by_currency"]["USD"] == {"income": 1000.0, "expense": 50.0}
+
+
+def test_cash_balance_grouped_by_currency(seeded, db):
+    """Готівка групується по user_id І валюті; не змішується."""
+    fam, admin, member, cats = seeded["family"], seeded["admin"], seeded["member"], seeded["cats"]
+    make_tx(db, fam.id, admin.id, cats["Зарплата"].id, 5000, "Поповнення", title="UAH", currency="UAH")
+    make_tx(db, fam.id, admin.id, cats["Зарплата"].id, 1000, "Поповнення", title="USD", currency="USD")
+    make_tx(db, fam.id, admin.id, cats["Кафе"].id, 250, "Витрати", title="UAH витрата", currency="UAH")
+
+    stats = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()
+    # по валютах
+    by_cur = {c["currency"]: c["balance"] for c in stats["cash_by_currency"]}
+    assert by_cur["UAH"] == 4750
+    assert by_cur["USD"] == 1000
+    # по користувачах+валюті
+    by_user = {(u["user_id"], u["currency"]): u["balance"] for u in stats["cash_by_user"]}
+    assert by_user[(admin.id, "UAH")] == 4750
+    assert by_user[(admin.id, "USD")] == 1000
+    # зворотна сумісність: balances['Готівка'] — UAH
+    assert stats["balances"]["Готівка"] == 4750
+
+
+def test_create_transaction_with_currency_and_jar(seeded, db):
+    """Створення транзакції з currency та jar_id через API."""
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    jar = _mk_jars(db, seeded)
+    r = client.post("/transactions", headers=BOT_HEADERS, json={
+        "family_id": fam.id, "user_id": admin.id, "category_id": cats["Кафе"].id,
+        "amount": 100, "type": "Витрати", "title": "Кава USD", "account": "Готівка",
+        "date": "2026-08-10", "currency": "USD", "jar_id": jar["id"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["currency"] == "USD"
+    assert body["jar_id"] == jar["id"]

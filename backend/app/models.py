@@ -66,9 +66,12 @@ class Transaction(Base):
     account = Column(String, nullable=False)
     mono_id = Column(String, unique=True, nullable=True, index=True)
     date = Column(Date, nullable=False)
+    currency = Column(String, default="UAH", nullable=False)  # UAH/USD/EUR...
+    jar_id = Column(Integer, ForeignKey("jars.id"), nullable=True)  # deposit/withdrawal to/from jar
     family = relationship("Family", back_populates="transactions")
     user = relationship("User", back_populates="transactions")
     category = relationship("Category", back_populates="transactions")
+    jar = relationship("Jar", back_populates="transactions")
 
 
 class Jar(Base):
@@ -76,9 +79,14 @@ class Jar(Base):
     id = Column(Integer, primary_key=True)
     family_id = Column(Integer, ForeignKey("families.id"), nullable=False)
     name = Column(String, nullable=False)
+    # balance — зберігаємо фізично для зворотної сумісності, але НЕ використовуємо
+    # для розрахунків. Баланс скарбнички тепер ДИНАМІЧНИЙ:
+    #   SUM(amount) транзакцій з jar_id = this.id (поповнення +, зняття -).
     balance = Column(Float, default=0.0)
     goal = Column(Float, nullable=False)
+    currency = Column(String, default="UAH", nullable=False)
     family = relationship("Family", back_populates="jars")
+    transactions = relationship("Transaction", back_populates="jar")
 
 
 class Note(Base):
