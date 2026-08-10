@@ -1,4 +1,4 @@
-export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; }
+export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; user_name?: string | null; }
 export interface Category { id: number; name: string; icon: string; type: string; }
 export interface Stats { income: number; expense: number; balance: number; top_categories: { name: string; amount: number }[]; pending_count: number; balances: Record<string, number>; }
 export interface Note { id: number; content: string; }

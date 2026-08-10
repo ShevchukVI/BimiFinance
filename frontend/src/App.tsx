@@ -134,6 +134,25 @@ export default function App() {
     refreshStats();
   };
 
+  // Після категоризації в InboxModal:
+  //  1) оновлюємо основний список транзакцій (з сервера — там уже очищена назва),
+  //  2) оновлюємо статистику,
+  //  3) відкриваємо транзакцію в режимі редагування (щоб додати опис або виправити категорію).
+  const handleCategorized = async (tx: Transaction) => {
+    setIsInboxOpen(false);
+    // Ставимо оновлену транзакцію одразу (оптимістично), потім перевіряємо з сервера.
+    setTransactions(prev => sortTx([tx, ...prev.filter(t => t.id !== tx.id)]));
+    refreshStats();
+    if (!familyId) { setEditingTx(tx); return; }
+    try {
+      const r = await api.get(`/families/${familyId}/transactions?limit=100`);
+      setTransactions(r.data);
+      setHasMore(r.data.length >= LIMIT);
+    } catch { /* стан уже оновлено оптимістично */ }
+    // Відкриваємо деталі/редагування для зручності (додати опис / виправити випадковий тап).
+    setEditingTx(tx);
+  };
+
   const switchFamily = async (newFamilyId: number) => {
     setFamilyId(newFamilyId);
     setLoading(true);
@@ -252,7 +271,11 @@ export default function App() {
         <TopUpJarModal jar={topupJar} onClose={() => setTopupJar(null)} onToppedUp={onJarTopUp} />
       )}
       {isInboxOpen && familyId && (
-        <InboxModal familyId={familyId} categories={categories} onClose={() => setIsInboxOpen(false)} onDone={refreshStats} />
+        <InboxModal
+          familyId={familyId} categories={categories}
+          onClose={() => setIsInboxOpen(false)}
+          onCategorized={handleCategorized}
+        />
       )}
 
       {viewingTx && (
@@ -272,6 +295,7 @@ export default function App() {
             </div>
             <div style={{ backgroundColor: '#f8f9fa', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
               <p style={{ margin: '0 0 10px 0', color: '#2c3e50', fontSize: '15px', wordBreak: 'break-word' }}><b>Назва:</b> {viewingTx.title}</p>
+              {viewingTx.user_name && <p style={{ margin: '0 0 10px 0', color: '#7f8c8d', fontSize: '13px' }}>👤 <b>{viewingTx.user_name}</b></p>}
               {viewingTx.note && <p style={{ margin: '0 0 10px 0', color: '#7f8c8d', fontSize: '13px', wordBreak: 'break-word' }}><b>Коментар:</b> {viewingTx.note}</p>}
               <p style={{ margin: '0 0 5px 0', color: '#7f8c8d', fontSize: '13px' }}><b>Рахунок:</b> {viewingTx.account}</p>
               <p style={{ margin: '0', color: '#7f8c8d', fontSize: '13px' }}><b>Дата:</b> {viewingTx.date}</p>

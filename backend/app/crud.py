@@ -180,13 +180,48 @@ def create_transaction(db: Session, family_id: int, user_id: int, category_id: i
     db.refresh(obj)
     return obj
 
+_PENDING_TITLE_PATTERNS = [
+    ("❓ ", ""),  # префікс вебхука
+    (" (нерозібрано)", ""),  # seed
+    (" (не розібрано)", ""),
+]
+
+
+def _clean_pending_title(title: str) -> str:
+    """Прибирає з назви маркери 'Очікує' (❓ / нерозібрано) після категоризації."""
+    t = title or ""
+    for old, new in _PENDING_TITLE_PATTERNS:
+        t = t.replace(old, new)
+    return t.strip()
+
+
 def update_transaction(db: Session, tx_id: int, payload: dict):
     tx = db.query(models.Transaction).filter(models.Transaction.id == tx_id).first()
     if tx:
+        # Категоризація pending → очищаємо назву від маркерів нерозібраності
+        if payload.get("category_id") is not None:
+            payload = dict(payload)
+            if payload.get("title") is None:
+                payload["title"] = _clean_pending_title(tx.title)
         for key, value in payload.items(): setattr(tx, key, value)
         db.commit()
         db.refresh(tx)
     return tx
+
+def update_tx_by_mono(db: Session, mono_id: str, payload: dict):
+    tx = get_tx_by_mono(db, mono_id)
+    if not tx:
+        return None
+    if payload.get("category_id") is not None:
+        payload = dict(payload)
+        if payload.get("title") is None:
+            payload["title"] = _clean_pending_title(tx.title)
+    for key, value in payload.items():
+        setattr(tx, key, value)
+    db.commit()
+    db.refresh(tx)
+    return tx
+
 
 def delete_transaction(db: Session, tx_id: int):
     tx = db.query(models.Transaction).filter(models.Transaction.id == tx_id).first()

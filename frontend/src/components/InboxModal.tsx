@@ -7,12 +7,12 @@ import { Transaction, Category, fmt } from '../types';
 // Inbox Zero у Mini App: нерозібрані транзакції (категорія «Очікує»)
 // з швидким призначенням категорії в один дотик.
 export default function InboxModal({
-  familyId, categories, onClose, onDone,
+  familyId, categories, onClose, onCategorized,
 }: {
   familyId: number;
   categories: Category[];
   onClose: () => void;
-  onDone: () => void; // оновити stats/списки після змін
+  onCategorized: (tx: Transaction) => void; // повертає оновлену транзакцію
 }) {
   const [items, setItems] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,10 +34,11 @@ export default function InboxModal({
   const assign = async (tx: Transaction, catId: number) => {
     setSavingId(tx.id);
     try {
-      await api.put(`/transactions/${tx.id}`, { category_id: catId });
+      const r = await api.put(`/transactions/${tx.id}`, { category_id: catId });
+      const updated = r.data;
       setItems(prev => prev.filter(t => t.id !== tx.id));
       toast('✅ Категорію призначено');
-      onDone();
+      onCategorized(updated); // оновити списки + відкрити деталі
     } catch {
       toast('Помилка збереження', 'err');
     }

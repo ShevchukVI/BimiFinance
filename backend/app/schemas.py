@@ -1,6 +1,6 @@
 from datetime import date
 from typing import Optional, List
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, computed_field, model_validator
 
 class FamilyCreate(BaseModel):
     name: str
@@ -96,7 +96,24 @@ class TransactionOut(BaseModel):
     account: str
     mono_id: Optional[str]
     date: date
+    user_name: Optional[str] = None  # ім'я автора (атрибуція в Mini App)
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _attach_user_name(cls, data):
+        """Дістаємо ім'я автора з ORM-об'єкта/словника до валідації."""
+        if isinstance(data, dict):
+            if "user_name" not in data and data.get("user") is not None:
+                data = dict(data)
+                data["user_name"] = getattr(data["user"], "name", None)
+            return data
+        # ORM-об'єкт: робимо плоский dict, щоб не мутувати SQLAlchemy-інстанс
+        if hasattr(data, "__table__"):
+            d = {c.name: getattr(data, c.name) for c in data.__table__.columns}
+            d["user_name"] = data.user.name if data.user else None
+            return d
+        return data
 class JarCreate(BaseModel):
     family_id: int
     name: str

@@ -159,3 +159,30 @@ def test_user_create_note_no_500(seeded):
     r = client.post("/notes", headers={"Authorization": f"Bearer {token}"},
                     json={"family_id": fam.id, "content": "тест"})
     assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text}"
+
+
+# ---------- POST-CATEGORIZATION: title cleanup + user attribution ----------
+
+def test_categorize_strips_pending_markers(seeded, db):
+    """Після категоризації з назви зникають '❓', '(нерозібрано)', '(не розібрано)'."""
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    token = _make_user_token(seeded, admin.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for title in ("❓ Сільпо", "❓ Новус (нерозібрано)", "❓ Тест (не розібрано)"):
+        tx = make_tx(db, fam.id, admin.id, cats["Очікує"].id, 50, "Витрати", title=title)
+        r = client.put(f"/transactions/{tx.id}", headers=headers,
+                       json={"category_id": cats["Продукти"].id})
+        assert r.status_code == 200
+        assert r.json()["title"] == title.replace("❓ ", "").replace(" (нерозібрано)", "").replace(" (не розібрано)", "").strip(), r.json()["title"]
+
+
+def test_transaction_out_has_user_name(seeded, db):
+    """TransactionOut містить user_name для атрибуції (хто створив)."""
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    tx = make_tx(db, fam.id, admin.id, cats["Кафе"].id, 100, "Витрати", title="Кава")
+    r = client.get(f"/families/{fam.id}/transactions?limit=100", headers=_hdr(fam.id))
+    assert r.status_code == 200
+    txs = r.json()
+    mine = next(t for t in txs if t["id"] == tx.id)
+    assert mine["user_name"] == "Admin"
