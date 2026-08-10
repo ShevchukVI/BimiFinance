@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime
+from datetime import date, datetime
 from sqlalchemy import extract
 from sqlalchemy.orm import Session
 from app import models
@@ -195,6 +195,15 @@ def _clean_pending_title(title: str) -> str:
     return t.strip()
 
 
+def _coerce_date(value):
+    """'YYYY-MM-DD' → date. TransactionUpdate.date приходить як str (див. schemas)."""
+    if value is None or isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    return value
+
+
 def update_transaction(db: Session, tx_id: int, payload: dict):
     tx = db.query(models.Transaction).filter(models.Transaction.id == tx_id).first()
     if tx:
@@ -203,6 +212,9 @@ def update_transaction(db: Session, tx_id: int, payload: dict):
             payload = dict(payload)
             if payload.get("title") is None:
                 payload["title"] = _clean_pending_title(tx.title)
+        payload = dict(payload)
+        if "date" in payload:
+            payload["date"] = _coerce_date(payload["date"])
         for key, value in payload.items(): setattr(tx, key, value)
         db.commit()
         db.refresh(tx)
@@ -216,6 +228,9 @@ def update_tx_by_mono(db: Session, mono_id: str, payload: dict):
         payload = dict(payload)
         if payload.get("title") is None:
             payload["title"] = _clean_pending_title(tx.title)
+    payload = dict(payload)
+    if "date" in payload:
+        payload["date"] = _coerce_date(payload["date"])
     for key, value in payload.items():
         setattr(tx, key, value)
     db.commit()

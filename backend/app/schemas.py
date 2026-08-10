@@ -75,7 +75,10 @@ class TransactionUpdate(BaseModel):
     title: Optional[str] = None
     note: Optional[str] = None
     category_id: Optional[int] = None
-    date: Optional[date] = None
+    # NOTE: pydantic 2.13.4 баг — 'Optional[date] = None' завжди падає з
+    # 'none_required' для будь-якого введення. Тому приймаємо str і парсимо
+    # у crud-шарі (див. crud._coerce_date).
+    date: Optional[str] = None
 class TransferCreate(BaseModel):
     """Переказ між джерелами коштів (Cash ↔ Bank). Не дохід/витрата."""
     family_id: int

@@ -186,3 +186,18 @@ def test_transaction_out_has_user_name(seeded, db):
     txs = r.json()
     mine = next(t for t in txs if t["id"] == tx.id)
     assert mine["user_name"] == "Admin"
+
+
+def test_update_with_date_and_note_ok(seeded, db):
+    """Регресія pydantic 2.13.4: 'Optional[date] = None' падав з 422 none_required.
+    TxModal шле date:str + note — має зберегтись 200."""
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    tx = make_tx(db, fam.id, admin.id, cats["Кафе"].id, 100, "Витрати", title="Кава")
+    token = _make_user_token(seeded, admin.id)
+    r = client.put(f"/transactions/{tx.id}", headers={"Authorization": f"Bearer {token}"},
+                   json={"amount": 150, "type": "Витрати", "title": "Кава",
+                         "category_id": cats["Кафе"].id, "date": "2026-08-10", "note": "123321"})
+    assert r.status_code == 200, f"expected 200, got {r.status_code}: {r.text}"
+    body = r.json()
+    assert body["note"] == "123321"
+    assert str(body["date"]) == "2026-08-10"
