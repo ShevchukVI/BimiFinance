@@ -34,6 +34,13 @@ export default function HomePage({
         </div>
       )}
 
+      {stats && stats.balances && stats.balances['Готівка'] !== undefined && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '14px 16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <span style={{ color: '#7f8c8d', fontSize: '14px' }}>💵 Готівка (баланс)</span>
+          <span style={{ fontWeight: 'bold', fontSize: '15px', color: stats.balances['Готівка'] >= 0 ? '#2c3e50' : '#e74c3c' }}>{fmt(stats.balances['Готівка'])}</span>
+        </div>
+      )}
+
       {pending > 0 && (
         <div onClick={onOpenInbox} style={{ backgroundColor: '#fff8e1', border: '1px solid #f1c40f', padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
           <div>

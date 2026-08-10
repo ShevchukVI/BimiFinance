@@ -36,6 +36,7 @@ export default function TxModal({
   const [txTitle, setTxTitle] = useState(editingTx?.title || '');
   const [txDate, setTxDate] = useState(editingTx?.date || new Date().toISOString().split('T')[0]);
   const [txCategoryId, setTxCategoryId] = useState<number | null>(editingTx?.category_id || null);
+  const [txNote, setTxNote] = useState(editingTx?.note || '');
   const [busy, setBusy] = useState(false);
 
   const filtered = categories.filter(c => c.type === (txType === 'Витрати' ? 'expense' : 'income') && !c.name.includes('Очікує'));
@@ -48,7 +49,7 @@ export default function TxModal({
     const payload = {
       amount: amountNum, type: txType, category_id: txCategoryId,
       title: txTitle.trim() || cleanCatName(categories.find(c => c.id === txCategoryId)?.name),
-      date: txDate,
+      date: txDate, note: txNote.trim(),
     };
     try {
       const r = editingTx
@@ -105,6 +106,8 @@ export default function TxModal({
         </div>
 
         <input type="text" placeholder="Що купили? (необов'язково)" value={txTitle} onChange={e => setTxTitle(e.target.value)}
+          style={{ ...input, marginBottom: '10px' }} />
+        <input type="text" placeholder="Опис / коментар (необов'язково)" value={txNote} onChange={e => setTxNote(e.target.value)}
           style={{ ...input, marginBottom: '15px' }} />
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '20px', maxHeight: '180px', overflowY: 'auto' }}>
