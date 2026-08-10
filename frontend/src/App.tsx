@@ -13,7 +13,7 @@ import JarsPage from './pages/JarsPage';
 import NotesPage from './pages/NotesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
-import type { Transaction, Category, Stats, Note, Jar, Tab, FamilyMembership, FamilyUser, Me } from './types';
+import type { Transaction, Category, Stats, Note, Jar, Tab, FamilyMembership, FamilyUser, Me, BankUserBalances } from './types';
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -27,6 +27,7 @@ export default function App() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [jars, setJars] = useState<Jar[]>([]);
+  const [bankBalances, setBankBalances] = useState<BankUserBalances[]>([]);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [tgUser, setTgUser] = useState<any>(null);
@@ -54,7 +55,7 @@ export default function App() {
 
   // Завантаження всіх family-scoped даних (викликається і при перемиканні сім'ї).
   const loadFamilyData = useCallback(async (fId: number) => {
-    const [txRes, catRes, statsRes, usersRes, notesRes, jarsRes, famRes] = await Promise.all([
+    const [txRes, catRes, statsRes, usersRes, notesRes, jarsRes, famRes, bankRes] = await Promise.all([
       api.get(`/families/${fId}/transactions?skip=0&limit=${LIMIT}`),
       api.get(`/families/${fId}/categories`),
       api.get(`/families/${fId}/stats`),
@@ -62,6 +63,7 @@ export default function App() {
       api.get(`/families/${fId}/notes`),
       api.get(`/families/${fId}/jars`),
       api.get('/families'),
+      api.get(`/banking/families/${fId}/bank-balances`),
     ]);
     setTransactions(txRes.data);
     setSkip(0);
@@ -71,6 +73,7 @@ export default function App() {
     setFamilyUsers(usersRes.data.filter((u: any) => u.name?.trim()));
     setJars(jarsRes.data);
     setNotes(notesRes.data);
+    setBankBalances(bankRes.data || []);
     if (notesRes.data.length > 0) setNoteText(notesRes.data[0].content);
     else setNoteText('');
     const myFam = famRes.data.find((f: any) => f.id === fId) || famRes.data[0];
@@ -213,7 +216,7 @@ export default function App() {
 
       <div style={{ padding: '20px' }}>
         {activeTab === 'home' && (
-          <HomePage stats={stats} transactions={transactions} categories={categories}
+          <HomePage stats={stats} transactions={transactions} categories={categories} bankBalances={bankBalances}
             onOpenInbox={() => setIsInboxOpen(true)} onSeeAll={() => setActiveTab('transactions')}
             onAdd={() => setIsAddModalOpen(true)} onView={setViewingTx} />
         )}

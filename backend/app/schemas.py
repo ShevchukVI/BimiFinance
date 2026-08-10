@@ -117,6 +117,21 @@ class TransactionOut(BaseModel):
             d["user_name"] = data.user.name if data.user else None
             return d
         return data
+
+
+class BankAccountOut(BaseModel):
+    """Банківський рахунок з балансом (для Mini App Home)."""
+    name: str
+    balance: float
+    currency: str = "UAH"
+
+
+class BankUserBalancesOut(BaseModel):
+    """Користувач сім'ї з підключеними банківськими рахунками."""
+    user_id: int
+    user_name: str
+    provider: str
+    accounts: List[BankAccountOut]
 class JarCreate(BaseModel):
     family_id: int
     name: str

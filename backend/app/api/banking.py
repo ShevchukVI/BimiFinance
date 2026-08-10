@@ -1,14 +1,15 @@
 """Banking API — delegates to provider implementations. All endpoints require X-API-Key."""
 import logging
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import crud
+from app import crud, schemas
 from app.core import security
-from app.core.deps import require_internal_key
+from app.core.deps import get_actor, require_family, require_internal_key
 from app.database import get_db
 from app.services.banking.monobank import monobank as monobank_provider
 
@@ -83,3 +84,42 @@ async def get_user_balance(tg_id: int, _: None = Depends(require_internal_key), 
         return {"balance": round(balance, 2), "has_token": True}
     except Exception:
         return {"balance": 0.0, "has_token": True, "error": "decrypt_failed"}
+
+
+# --- Mini App: банківські баланси сім'ї (короткий in-memory кеш) ---
+_BANK_BAL_CACHE = {}
+_BANK_BAL_CACHE_TTL = 60  # секунд — Monobank не любить часті запити
+
+
+@router.get("/families/{family_id}/bank-balances", response_model=List[schemas.BankUserBalancesOut])
+async def family_bank_balances(family_id: int, _: None = Depends(require_family),
+                               db: Session = Depends(get_db)):
+    """Баланси підключених банківських рахунків по користувачах сім'ї (для Mini App)."""
+    now = time.time()
+    cached = _BANK_BAL_CACHE.get(family_id)
+    if cached and now - cached["ts"] < _BANK_BAL_CACHE_TTL:
+        return cached["data"]
+
+    users = crud.get_users(db, family_id)
+    result = []
+    for u in users:
+        if not u.mono_token:
+            continue
+        try:
+            plain = security.decrypt_secret(u.mono_token)
+            accounts = await monobank_provider.get_accounts(plain)
+        except Exception:
+            continue
+        if not accounts:
+            continue
+        result.append(schemas.BankUserBalancesOut(
+            user_id=u.id,
+            user_name=u.name,
+            provider="monobank",
+            accounts=[schemas.BankAccountOut(
+                name=a.name, balance=round(a.balance - a.credit_limit, 2)
+            ) for a in accounts],
+        ))
+
+    _BANK_BAL_CACHE[family_id] = {"ts": now, "data": result}
+    return result

@@ -1,13 +1,14 @@
-import { Stats, Transaction, Category, fmt } from '../types';
+import { Stats, Transaction, Category, BankUserBalances, fmt } from '../types';
 import TransactionCard from '../components/TransactionCard';
 import EmptyState from '../components/EmptyState';
 
 export default function HomePage({
-  stats, transactions, categories, onOpenInbox, onSeeAll, onAdd, onView,
+  stats, transactions, categories, bankBalances, onOpenInbox, onSeeAll, onAdd, onView,
 }: {
   stats: Stats | null;
   transactions: Transaction[];
   categories: Category[];
+  bankBalances: BankUserBalances[];
   onOpenInbox: () => void;
   onSeeAll: () => void;
   onAdd: () => void;
@@ -15,6 +16,7 @@ export default function HomePage({
 }) {
   const pending = stats?.pending_count || 0;
   const recent = transactions.slice(0, 5);
+  const hasBank = bankBalances.length > 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -39,6 +41,23 @@ export default function HomePage({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '14px 16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <span style={{ color: '#7f8c8d', fontSize: '14px' }}>💵 Готівка (баланс)</span>
           <span style={{ fontWeight: 'bold', fontSize: '15px', color: stats.balances['Готівка'] >= 0 ? '#2c3e50' : '#e74c3c' }}>{fmt(stats.balances['Готівка'])}</span>
+        </div>
+      )}
+
+      {hasBank && (
+        <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#2c3e50', marginBottom: '10px' }}>💳 Банки</div>
+          {bankBalances.map(u => (
+            <div key={u.user_id} style={{ marginBottom: '8px' }}>
+              <div style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: '4px' }}>👤 {u.user_name}</div>
+              {u.accounts.map((a, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+                  <span style={{ fontSize: '13px', color: '#2c3e50' }}>{a.name}</span>
+                  <span style={{ fontWeight: 'bold', fontSize: '14px', color: a.balance >= 0 ? '#2c3e50' : '#e74c3c' }}>{fmt(a.balance)}</span>
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       )}
 

@@ -201,3 +201,11 @@ def test_update_with_date_and_note_ok(seeded, db):
     body = r.json()
     assert body["note"] == "123321"
     assert str(body["date"]) == "2026-08-10"
+
+
+def test_bank_balances_empty_when_no_tokens(seeded):
+    """Без підключених банків endpoint віддає порожній список (HomePage ховає блок)."""
+    fam = seeded["family"]
+    r = client.get(f"/banking/families/{fam.id}/bank-balances", headers=_hdr(fam.id))
+    assert r.status_code == 200
+    assert r.json() == []
