@@ -97,7 +97,12 @@ export default function App() {
         setLoading(false);
       } catch (error: any) {
         const s = error?.response?.status;
-        setAuthError(s === 401 ? "Сесія не підтверджена. Закрийте та відкрийте застосунок ще раз." : s === 404 ? "Акаунт не знайдено. Натисніть /start у боті." : "Помилка з'єднання. Спробуйте пізніше.");
+        const detail = error?.response?.data?.detail;
+        // Якщо бекенд повернув конкретну причину (напр. "Invalid initData signature"),
+        // показуємо її — це допомагає знайти місконфіг (DEV замість PROD тощо).
+        if (s === 401) setAuthError(detail && typeof detail === 'string' ? `Сесія не підтверджена: ${detail}` : "Сесія не підтверджена. Закрийте та відкрийте застосунок ще раз.");
+        else if (s === 404) setAuthError("Акаунт не знайдено. Натисніть /start у боті.");
+        else setAuthError("Помилка з'єднання. Спробуйте пізніше.");
         setLoading(false);
       }
     })();

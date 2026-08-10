@@ -3,14 +3,18 @@
 #
 # Мета:
 #  - дати реальному DEV-користувачу (за замовчуванням tg_id=527405868) повноцінну сім'ю
-#    "Dev Family" з повним набором категорій і ~35 реалістичними транзакціями:
+#    "Dev Family" з ~35 реалістичними транзакціями:
 #    cash income/expense, bank (Monobank), pending ('Очікує'), transfers, минулий місяць;
 #  - додати тестових учасників (111111 admin / 222222 member);
 #  - скарбнички, нотатку.
+# КАТЕГОРІЇ: копіюються з реальних PROD-категорій користувача — знімок лежить у
+#   scripts/data/prod_categories.json (згенерований READ-only SELECT з PROD family=1).
+#   Так DEV-категорії збігаються зі звичними PROD (emoji + назви + кольори).
 # Ідемпотентний: повторний запуск чистить транзакції/скарбнички/нотатки сім'ї і пересоздає.
 #
 # Налаштування: DEV_SEED_TG_ID (env, default 527405868).
 # Запуск (в dev-контейнері):  python -m scripts.seed_dev
+import json
 import os
 import sys
 from datetime import date, timedelta
@@ -22,18 +26,8 @@ from app import models
 from app.database import SessionLocal
 from app import crud
 
-# Категорії (icon, name, type) — повний набір, як у боті/онбордингу + доходи.
-CATS = [
-    ("🛒", "Продукти", "expense"), ("☕", "Кафе", "expense"),
-    ("🚕", "Транспорт", "expense"), ("🏠", "Дім", "expense"),
-    ("💊", "Здоров'я", "expense"), ("🎉", "Розваги", "expense"),
-    ("👕", "Одяг", "expense"), ("📱", "Зв'язок", "expense"),
-    ("🎓", "Освіта", "expense"), ("🐾", "Тварини", "expense"),
-    ("🗂️", "Інше", "expense"),
-    ("💼", "Робота", "income"), ("💶", "Фріланс", "income"),
-    ("🎁", "Подарунки", "income"), ("📈", "Інвестиції", "income"),
-    ("🔄", "Переказ", "expense"), ("❓", "Очікує", "expense"),
-]
+DATA_DIR = Path(__file__).resolve().parent / "data"
+CATS_FILE = DATA_DIR / "prod_categories.json"
 
 # (category, title, amount, account, days_ago)
 # account: "Готівка" або "Монобанк"
@@ -84,6 +78,29 @@ TXS = [
 JARS = [("Відпустка", 7500, 30000), ("Запас на чорний день", 12000, 50000)]
 NOTES = "М'ясо 500 грн\nПиво 350.50 ₴\nОвочі 120 грн\nТаксі 180 грн"
 
+# Скорочені ключі TXS → реальні назви PROD-категорій (з data/prod_categories.json).
+CAT_KEY_MAP = {
+    "Продукти": "🛒 Продукти",
+    "Кафе": "☕ Щоденні дрібниці",
+    "Транспорт": "🚆 Громад. транспорт",
+    "Паливо": "⛽ Паливо",
+    "Дім": "🏡 Дім",
+    "Комуналка": "⚡️ Комуналка",
+    "Здоров'я": "🏥 Здоров'я",
+    "Розваги": "🎮 Розваги",
+    "Одяг": "👕 Одяг",
+    "Зв'язок": "📱 Техніка",
+    "Освіта": "📚 Освіта / Курси",
+    "Тварини": "🐱 Домашній улюбленець",
+    "Інше": "🎁 Подарунки",
+    "Робота": "💰 Доходи",
+    "Фріланс": "💵 Валютний дохід",
+    "Подарунки": "🎁 Подарунки",
+    "Інвестиції": "💰 Доходи",
+    "Очікує": "❓ Очікує",
+    "Переказ": "🔄 Переказ",
+}
+
 
 def _dev_only(db) -> None:
     db_name = db.bind.url.database or ""
@@ -133,29 +150,51 @@ def main():
         ensure_user("Тест-Учасник", 222222, "member")
         print(f"Users: real={real.name}(tg={real_tg_id}, admin), TestMember=222222")
 
-        # --- Категорії (upsert) ---
+        # --- Категорії (upsert) — копіюємо реальні PROD-категорії з data-файлу ---
+        if not CATS_FILE.exists():
+            raise SystemExit(
+                f"REFUSED: {CATS_FILE} not found. Згенеруй знімок категорій з PROD "
+                f"(README scripts/data/).")
+        prod_cats = json.loads(CATS_FILE.read_text(encoding="utf-8"))
         cats = {}
-        for icon, name, ctype in CATS:
-            c = db.query(models.Category).filter(
+        for c in prod_cats:
+            name = c["name"]
+            existing = db.query(models.Category).filter(
                 models.Category.family_id == family.id,
                 models.Category.name == name).first()
-            if not c:
-                c = models.Category(family_id=family.id, icon=icon, name=name,
-                                    color="#7f8c8d", type=ctype)
+            if not existing:
+                existing = models.Category(family_id=family.id, icon=c["icon"], name=name,
+                                          color=c["color"], type=c["type"])
+                db.add(existing)
+                db.flush()
+            cats[name] = existing
+        # Гарантуємо службові категорії 'Очікує'/'Переказ', якщо в знімку їх немає
+        for name in ("❓ Очікує", "🔄 Переказ"):
+            if name not in cats:
+                c = models.Category(family_id=family.id, icon=name[0], name=name,
+                                    color="#7f8c8d", type="expense")
                 db.add(c)
                 db.flush()
-            cats[name] = c
+                cats[name] = c
+        # Видаляємо застарілі категорії, яких немає в знімку (після старих seed-версій)
+        keep_ids = {c.id for c in cats.values()}
+        stale = db.query(models.Category).filter(
+            models.Category.family_id == family.id,
+            models.Category.id.notin_(keep_ids)).all()
+        for c in stale:
+            db.delete(c)
         db.commit()
-        print(f"Categories: {len(cats)}")
+        print(f"Categories: {len(cats)} (з PROD-знімка, прибрано {len(stale)} застарілих)")
 
         # --- Транзакції ---
         today = date.today()
         mono_seq = 1
 
-        def add(amount, ctype, title, category, account, days_ago, mono_id=None, user=real):
+        def add(amount, ctype, title, category_key, account, days_ago, mono_id=None, user=real):
+            full_name = CAT_KEY_MAP.get(category_key, category_key)
             tx = models.Transaction(
                 family_id=family.id, user_id=user.id,
-                category_id=cats[category].id, amount=amount, type=ctype,
+                category_id=cats[full_name].id, amount=amount, type=ctype,
                 title=title, account=account,
                 date=today - timedelta(days=days_ago), mono_id=mono_id)
             db.add(tx)
