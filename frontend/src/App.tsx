@@ -170,6 +170,33 @@ export default function App() {
     setLoading(false);
   };
 
+  const handleMemberRoleChange = (userId: number, role: 'admin' | 'member') => {
+    setFamilyUsers(prev => prev.map(u => u.id === userId ? { ...u, role } : u));
+    // Якщо змінюємо власну роль — оновлюємо me.role (для переключення адмін-кнопок).
+    if (userId === me?.id && me) setMe({ ...me, role });
+  };
+
+  const handleLeaveFamily = async () => {
+    // Після виходу — перемикаємось на іншу сім'ю (або показуємо порожній стан).
+    try {
+      const famRes = await api.get('/users/me/families');
+      const remaining = famRes.data;
+      if (remaining.length > 0) {
+        const next = remaining[0];
+        await api.patch('/users/me/active-family', { family_id: next.family_id });
+        await switchFamily(next.family_id);
+        setFamilies(remaining.map((f: FamilyMembership) => ({ ...f, is_active: f.family_id === next.family_id })));
+      } else {
+        setMe(null);
+        setFamilyId(null);
+        setFamilyUsers([]);
+      }
+    } catch {
+      toast('Не вдалося перейти після виходу', 'err');
+      window.location.reload();
+    }
+  };
+
   const saveNote = async () => {
     if (!familyId) return;
     try {
@@ -255,6 +282,8 @@ export default function App() {
             onSwitchFamily={switchFamily}
             onInviteRegenerated={setInviteCode}
             onMemberRemoved={(uid) => setFamilyUsers(prev => prev.filter(u => u.id !== uid))}
+            onMemberRoleChange={handleMemberRoleChange}
+            onLeaveFamily={handleLeaveFamily}
             onTokenSaved={() => setMe({ ...me, has_mono_token: true })}
             copyToClipboard={copyToClipboard}
           />

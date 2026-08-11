@@ -60,3 +60,45 @@ def get_family_stats(family_id: int, _: None = Depends(require_family), db: Sess
 @router.get("/{family_id}/users", response_model=list[schemas.UserOut])
 def get_users(family_id: int, _: None = Depends(require_family), db: Session = Depends(get_db)):
     return crud.get_users(db, family_id)
+
+
+@router.get("/{family_id}/members", response_model=list[schemas.FamilyMemberOut])
+def list_members(family_id: int, _: None = Depends(require_family), db: Session = Depends(get_db)):
+    """Список учасників сім'ї (доступний будь-якому члену сім'ї)."""
+    return crud.get_family_members(db, family_id)
+
+
+@router.patch("/{family_id}/members/{user_id}", response_model=schemas.FamilyMemberOut)
+def change_member_role(family_id: int, user_id: int, payload: schemas.MemberRoleUpdate,
+                       _: None = Depends(require_family_admin), db: Session = Depends(get_db)):
+    """Зміна ролі учасника (admin ↔ member). Лише для адміна."""
+    member, err = crud.set_member_role(db, family_id, user_id, payload.role)
+    if err == "Member not found":
+        raise HTTPException(status_code=404, detail=err)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return member
+
+
+@router.delete("/{family_id}/members/{user_id}", response_model=schemas.FamilyMemberOut)
+def kick_member(family_id: int, user_id: int, actor: Actor = Depends(require_user),
+                _: None = Depends(require_family_admin), db: Session = Depends(get_db)):
+    """Вигнати учасника. Лише для адміна. Не можна вигнати себе чи останнього адміна."""
+    member, err = crud.kick_member(db, family_id, user_id, actor.user_id)
+    if err == "Member not found":
+        raise HTTPException(status_code=404, detail=err)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return member
+
+
+@router.delete("/{family_id}/leave", response_model=schemas.FamilyMemberOut)
+def leave_family(family_id: int, actor: Actor = Depends(require_user),
+                 _: None = Depends(require_family), db: Session = Depends(get_db)):
+    """Поточний користувач виходить з сім'ї."""
+    member, err = crud.leave_family(db, family_id, actor.user_id)
+    if err == "Not a member":
+        raise HTTPException(status_code=404, detail=err)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return member

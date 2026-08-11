@@ -96,6 +96,45 @@ def get_users(db: Session, family_id: int):
              .order_by(models.User.id).all())
     return [_attach_derived(db, u, family_id) for u in users]
 
+def count_admins(db: Session, family_id: int) -> int:
+    return (db.query(models.FamilyMember)
+            .filter(models.FamilyMember.family_id == family_id,
+                    models.FamilyMember.role == "admin").count())
+
+
+def count_members(db: Session, family_id: int) -> int:
+    return (db.query(models.FamilyMember)
+            .filter(models.FamilyMember.family_id == family_id).count())
+
+
+def get_family_members(db: Session, family_id: int):
+    """Список учасників сім'ї: [{user_id, name, role}, ...]."""
+    rows = (db.query(models.User, models.FamilyMember.role)
+            .join(models.FamilyMember, models.User.id == models.FamilyMember.user_id)
+            .filter(models.FamilyMember.family_id == family_id)
+            .order_by(models.User.name).all())
+    return [{"user_id": u.id, "name": u.name, "role": role} for u, role in rows]
+
+
+def set_member_role(db: Session, family_id: int, user_id: int, new_role: str):
+    """Змінює роль учасника. Повертає (member, error) — error строкою, якщо заборонено."""
+    if new_role not in ("admin", "member"):
+        return None, "Invalid role"
+    mem = (db.query(models.FamilyMember)
+           .filter(models.FamilyMember.user_id == user_id,
+                   models.FamilyMember.family_id == family_id).first())
+    if not mem:
+        return None, "Member not found"
+    # Заборона демотувати ОСТАННЬОГО адміна
+    if mem.role == "admin" and new_role != "admin" and count_admins(db, family_id) <= 1:
+        return None, "Cannot demote the last admin"
+    mem.role = new_role
+    db.commit()
+    db.refresh(mem)
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    return {"user_id": user_id, "name": user.name if user else f"User {user_id}", "role": new_role}, None
+
+
 def get_user_by_tg_id(db: Session, tg_id: int):
     u = db.query(models.User).filter(models.User.tg_id == tg_id).first()
     if u:
@@ -153,6 +192,59 @@ def remove_user(db: Session, family_id: int, user_id: int):
     if user:
         _attach_derived(db, user)
     return user
+
+
+def _detach_user_from_family(db: Session, family_id: int, user_id: int):
+    """Видаляє membership, оновлює active_family; видаляє user, якщо він більше ніде."""
+    mem = (db.query(models.FamilyMember)
+           .filter(models.FamilyMember.user_id == user_id,
+                   models.FamilyMember.family_id == family_id).first())
+    if not mem:
+        return None
+    db.delete(mem)
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if user and user.current_active_family_id == family_id:
+        remaining = db.query(models.FamilyMember.family_id).filter(
+            models.FamilyMember.user_id == user_id).all()
+        user.current_active_family_id = remaining[0][0] if remaining else None
+    if user and db.query(models.FamilyMember).filter(models.FamilyMember.user_id == user_id).count() == 0:
+        db.delete(user)
+        db.commit()
+        return user
+    db.commit()
+    return user
+
+
+def kick_member(db: Session, family_id: int, target_user_id: int, actor_user_id: int):
+    """Вигнати учасника. (member_dict, error) — error, якщо заборонено."""
+    if target_user_id == actor_user_id:
+        return None, "Cannot kick yourself; use leave"
+    target_role = get_membership_role(db, target_user_id, family_id)
+    if not target_role:
+        return None, "Member not found"
+    # Заборона вигнати ОСТАННЬОГО адміна
+    if target_role == "admin" and count_admins(db, family_id) <= 1:
+        return None, "Cannot remove the last admin"
+    user = _detach_user_from_family(db, family_id, target_user_id)
+    return {"user_id": target_user_id,
+            "name": user.name if user else f"User {target_user_id}",
+            "role": target_role}, None
+
+
+def leave_family(db: Session, family_id: int, user_id: int):
+    """Вийти з сім'ї. (member_dict, error) — error, якщо заборонено."""
+    role = get_membership_role(db, user_id, family_id)
+    if not role:
+        return None, "Not a member"
+    member_count = count_members(db, family_id)
+    admin_count = count_admins(db, family_id)
+    # Останній адмін може піти ТІЛЬКИ якщо він — єдиний учасник сім'ї.
+    if role == "admin" and admin_count <= 1 and member_count > 1:
+        return None, "Last admin must promote someone before leaving"
+    user = _detach_user_from_family(db, family_id, user_id)
+    return {"user_id": user_id,
+            "name": user.name if user else f"User {user_id}",
+            "role": role}, None
 
 
 def get_categories(db: Session, family_id: int): return db.query(models.Category).filter(models.Category.family_id == family_id).order_by(models.Category.id).all()

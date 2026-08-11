@@ -118,10 +118,17 @@ def test_note_update(seeded, db):
 
 # ---------- USER AUTH: Mini App категоризація (регресія 500) ----------
 
-def _make_user_token(seeded, user_id):
-    """JWT для Mini App user (імітація Telegram initData flow)."""
+def _make_user_token(seeded, user_id, db=None):
+    """JWT для Mini App user (імітація Telegram initData flow).
+    tg_id (sub) береться з реального запису користувача, щоб actor розв'язувався
+    саме на цього користувача (раніше завжди підставлявся admin)."""
     from app.core.security import create_access_token
-    tg_id = seeded["admin"].tg_id
+    from app import models
+    if db is None:
+        tg_id = seeded["admin"].tg_id
+    else:
+        u = db.query(models.User).filter(models.User.id == user_id).first()
+        tg_id = u.tg_id if u else seeded["admin"].tg_id
     return create_access_token(tg_id, user_id, seeded["family"].id, "admin")
 
 
@@ -393,3 +400,142 @@ def test_jar_history_endpoint(seeded, db):
     assert amounts == [200, 300, 500]
     # найновіша спочатку
     assert txs[0]["date"] >= txs[-1]["date"]
+
+
+# ---------- FAMILY MANAGEMENT (RBAC + edge cases) ----------
+
+def _mk_fam3(db, seeded):
+    """Сім'я з 3 учасниками: admin + 2 members."""
+    fam = seeded["family"]
+    from app import models
+    u3 = models.User(name="Member2", tg_id=333, current_active_family_id=fam.id)
+    db.add(u3)
+    db.flush()
+    db.add(models.FamilyMember(user_id=u3.id, family_id=fam.id, role="member"))
+    db.commit()
+    db.refresh(u3)
+    return u3
+
+
+def test_members_list_any_member(seeded, db):
+    """GET /families/{id}/members доступний будь-якому члену, повертає roles."""
+    fam = seeded["family"]
+    u3 = _mk_fam3(db, seeded)
+    r = client.get(f"/families/{fam.id}/members",
+                   headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['member'].id, db)}"})
+    assert r.status_code == 200, r.text
+    data = {m["user_id"]: m["role"] for m in r.json()}
+    assert data[seeded["admin"].id] == "admin"
+    assert data[seeded["member"].id] == "member"
+    assert data[u3.id] == "member"
+
+
+def test_change_role_admin_only(seeded, db):
+    """Зміна ролі — тільки адмін; member отримує 403."""
+    fam = seeded["family"]
+    target = seeded["member"].id
+    # member намагається змінити роль -> 403
+    r = client.patch(f"/families/{fam.id}/members/{target}",
+                     headers={"Authorization": f"Bearer {_make_user_token(seeded, target, db)}"},
+                     json={"role": "admin"})
+    assert r.status_code == 403
+    # admin підвищує member
+    r = client.patch(f"/families/{fam.id}/members/{target}",
+                     headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"},
+                     json={"role": "admin"})
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "admin"
+
+
+def test_cannot_demote_last_admin(seeded, db):
+    """Не можна демотувати ОСТАННЬОГО адміна."""
+    fam = seeded["family"]
+    r = client.patch(f"/families/{fam.id}/members/{seeded['admin'].id}",
+                     headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"},
+                     json={"role": "member"})
+    assert r.status_code == 400
+    assert "last admin" in r.json()["detail"]
+
+
+def test_cannot_kick_last_admin(seeded, db):
+    """Не можна вигнати ОСТАННЬОГО адміна (пряма перевірка crud-правила).
+    На рівні API self-kick спрацьовує раніше; тут перевіряємо захист останнього адміна."""
+    from app import crud
+    fam = seeded["family"]
+    # actor = адмін (той самий, бо він єдиний) — але передаємо інший actor_user_id,
+    # щоб ізольовано перевірити правило "не можна вигнати останнього адміна".
+    member, err = crud.kick_member(db, fam.id, seeded["admin"].id, actor_user_id=999999)
+    assert member is None
+    assert "last admin" in err
+    # і адмін досі в сім'ї
+    members = client.get(f"/families/{fam.id}/members",
+                         headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"}).json()
+    assert any(m["user_id"] == seeded["admin"].id for m in members)
+
+
+def test_cannot_kick_self(seeded, db):
+    """Не можна вигнати себе через kick endpoint (треба leave)."""
+    fam = seeded["family"]
+    _mk_fam3(db, seeded)  # щоб admin не був останнім
+    r = client.delete(f"/families/{fam.id}/members/{seeded['admin'].id}",
+                      headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"})
+    assert r.status_code == 400
+    assert "leave" in r.json()["detail"]
+
+
+def test_kick_member_ok(seeded, db):
+    """Admin може вигнати звичайного учасника."""
+    fam = seeded["family"]
+    u3 = _mk_fam3(db, seeded)
+    r = client.delete(f"/families/{fam.id}/members/{u3.id}",
+                      headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"})
+    assert r.status_code == 200, r.text
+    # member зник зі списку
+    members = client.get(f"/families/{fam.id}/members",
+                         headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"}).json()
+    assert all(m["user_id"] != u3.id for m in members)
+
+
+def test_last_admin_cannot_leave_with_others(seeded, db):
+    """Останній адмін не може вийти, якщо в сім'ї є інші учасники."""
+    fam = seeded["family"]
+    _mk_fam3(db, seeded)
+    r = client.delete(f"/families/{fam.id}/leave",
+                      headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"})
+    assert r.status_code == 400
+    assert "promote" in r.json()["detail"]
+
+
+def test_last_admin_can_leave_if_alone(seeded, db):
+    """Останній адмін МОЖЕ вийти, якщо він єдиний учасник сім'ї."""
+    fam = seeded["family"]
+    # видаляємо member, лишаємо тільки admin
+    from app import models
+    db.query(models.FamilyMember).filter(
+        models.FamilyMember.family_id == fam.id,
+        models.FamilyMember.user_id == seeded["member"].id).delete()
+    db.commit()
+    r = client.delete(f"/families/{fam.id}/leave",
+                      headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"})
+    assert r.status_code == 200, r.text
+
+
+def test_member_can_leave(seeded, db):
+    """Звичайний учасник може вийти завжди."""
+    fam = seeded["family"]
+    r = client.delete(f"/families/{fam.id}/leave",
+                      headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['member'].id, db)}"})
+    assert r.status_code == 200, r.text
+
+
+def test_admin_leave_after_promote(seeded, db):
+    """Після підвищення іншого до адміна, перший адмін може вийти."""
+    fam = seeded["family"]
+    _mk_fam3(db, seeded)
+    # promote member -> admin
+    client.patch(f"/families/{fam.id}/members/{seeded['member'].id}",
+                 headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"},
+                 json={"role": "admin"})
+    r = client.delete(f"/families/{fam.id}/leave",
+                      headers={"Authorization": f"Bearer {_make_user_token(seeded, seeded['admin'].id, db)}"})
+    assert r.status_code == 200, r.text

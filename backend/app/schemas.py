@@ -40,6 +40,12 @@ class FamilyMembershipOut(BaseModel):
     name: str
     role: str
     is_active: bool = False
+class FamilyMemberOut(BaseModel):
+    user_id: int
+    name: str
+    role: str
+class MemberRoleUpdate(BaseModel):
+    role: str
 class JoinFamilyRequest(BaseModel):
     invite_code: str
 class SetActiveFamilyRequest(BaseModel):

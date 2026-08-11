@@ -5,10 +5,11 @@ import Avatar from '../components/Avatar';
 import { FamilyMembership, FamilyUser } from '../types';
 
 const cardStyle: React.CSSProperties = { backgroundColor: '#fff', padding: '20px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' };
+const badge = (bg: string, color: string): React.CSSProperties => ({ padding: '2px 8px', borderRadius: '8px', fontSize: '10px', fontWeight: '700', backgroundColor: bg, color });
 
 export default function SettingsPage({
   me, families, familyId, familyName, inviteCode, familyUsers, hasMonoToken,
-  onSwitchFamily, onInviteRegenerated, onMemberRemoved, onTokenSaved, copyToClipboard,
+  onSwitchFamily, onInviteRegenerated, onMemberRemoved, onMemberRoleChange, onLeaveFamily, onTokenSaved, copyToClipboard,
 }: {
   me: { id: number; name: string; role: string | null };
   families: FamilyMembership[];
@@ -20,13 +21,19 @@ export default function SettingsPage({
   onSwitchFamily: (familyId: number) => void;
   onInviteRegenerated: (code: string) => void;
   onMemberRemoved: (userId: number) => void;
+  onMemberRoleChange: (userId: number, role: 'admin' | 'member') => void;
+  onLeaveFamily: () => void;
   onTokenSaved: () => void;
   copyToClipboard: (text: string) => void;
 }) {
-  const isAdmin = me.role === 'admin';
+  // Роль БЕРЕМО з backend payload учасників, а не лише з me.role (захист від самоданних даних).
+  const myRole = familyUsers.find(u => u.id === me.id)?.role ?? me.role ?? 'member';
+  const isAdmin = myRole === 'admin';
   const [monoToken, setMonoToken] = useState('');
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [switching, setSwitching] = useState<number | null>(null);
+  const [actionUserId, setActionUserId] = useState<number | null>(null);
+  const [leaving, setLeaving] = useState(false);
 
   const switchFamily = async (f: FamilyMembership) => {
     if (f.is_active || switching) return;
@@ -52,15 +59,42 @@ export default function SettingsPage({
     }
   };
 
-  const removeMember = async (u: FamilyUser) => {
-    if (!window.confirm(`Видалити ${u.name} з сім'ї?`)) return;
+  const changeRole = async (u: FamilyUser, role: 'admin' | 'member') => {
+    setActionUserId(u.id);
     try {
-      await api.delete(`/families/${familyId}/users/${u.id}`);
+      await api.patch(`/families/${familyId}/members/${u.id}`, { role });
+      onMemberRoleChange(u.id, role);
+      toast(role === 'admin' ? '👑 Призначено адміном' : '✅ Тепер учасник');
+    } catch (e: any) {
+      toast(e?.response?.data?.detail || 'Помилка зміни ролі', 'err');
+    }
+    setActionUserId(null);
+  };
+
+  const kickMember = async (u: FamilyUser) => {
+    if (!window.confirm(`Видалити ${u.name} з сім'ї?`)) return;
+    setActionUserId(u.id);
+    try {
+      await api.delete(`/families/${familyId}/members/${u.id}`);
       onMemberRemoved(u.id);
       toast('🗑 Учасника видалено');
-    } catch {
-      toast('Помилка видалення', 'err');
+    } catch (e: any) {
+      toast(e?.response?.data?.detail || 'Помилка видалення', 'err');
     }
+    setActionUserId(null);
+  };
+
+  const leaveFamily = async () => {
+    if (!window.confirm('Вийти з цієї сім\'ї? Цю дію неможливо скасувати.')) return;
+    setLeaving(true);
+    try {
+      await api.delete(`/families/${familyId}/leave`);
+      onLeaveFamily();
+      toast('👋 Ви вийшли з сім\'ї');
+    } catch (e: any) {
+      toast(e?.response?.data?.detail || 'Не вдалося вийти', 'err');
+    }
+    setLeaving(false);
   };
 
   const saveToken = async () => {
@@ -102,21 +136,47 @@ export default function SettingsPage({
         <p style={{ margin: '0 0 10px 0', color: '#7f8c8d', fontSize: '13px' }}>Код запрошення (натисни, щоб скопіювати):</p>
         <div onClick={() => copyToClipboard(`https://t.me/bimipal_bot?start=join_${inviteCode}`)} style={{ backgroundColor: '#f1f2f6', padding: '12px', borderRadius: '8px', fontFamily: 'monospace', color: '#3498db', cursor: 'pointer', textAlign: 'center', fontWeight: 'bold' }}>{inviteCode} 📋</div>
         {isAdmin && <button onClick={regenerateInvite} style={{ width: '100%', padding: '10px', marginTop: '10px', backgroundColor: 'transparent', color: '#e67e22', border: '1px solid #e67e22', borderRadius: '8px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>Згенерувати новий код</button>}
+      </div>
 
-        <h4 style={{ margin: '20px 0 10px 0', color: '#2c3e50' }}>Учасники ({familyUsers.length}):</h4>
+      <div style={cardStyle}>
+        <h3 style={{ margin: '0 0 12px 0', color: '#2c3e50' }}>👨‍👩‍👧 Керування сім'єю</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {familyUsers.map(u => (
-            <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9f9f9', padding: '10px', borderRadius: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Avatar name={u.name} />
-                <span style={{ color: '#2c3e50', fontWeight: '500' }}>
-                  {u.role === 'admin' ? '👑 ' : ''}{u.name} {u.id === me.id ? '(Ви)' : ''}
-                </span>
+          {familyUsers.length === 0 && (
+            <p style={{ margin: 0, color: '#7f8c8d', fontSize: '13px', textAlign: 'center', padding: '10px 0' }}>Учасників поки немає.</p>
+          )}
+          {familyUsers.map(u => {
+            const isSelf = u.id === me.id;
+            const busy = actionUserId === u.id;
+            return (
+              <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f9f9f9', padding: '10px 12px', borderRadius: '12px', opacity: busy ? 0.5 : 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <Avatar name={u.name} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: '#2c3e50', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.name}</span>
+                      {isSelf && <span style={{ fontSize: '11px', color: '#95a5a6' }}>(Ви)</span>}
+                      {u.role === 'admin' && <span style={badge('#fef3e2', '#b9770e')}>👑 Адмін</span>}
+                    </div>
+                  </div>
+                </div>
+                {!isSelf && isAdmin && (
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {u.role === 'member' ? (
+                      <button onClick={() => changeRole(u, 'admin')} disabled={busy} style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #3498db', background: '#fff', color: '#3498db', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>👑 Адмін</button>
+                    ) : (
+                      <button onClick={() => changeRole(u, 'member')} disabled={busy} style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #7f8c8d', background: '#fff', color: '#7f8c8d', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>⬇ Учасник</button>
+                    )}
+                    <button onClick={() => kickMember(u)} disabled={busy} style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #e74c3c', background: '#fff', color: '#e74c3c', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>✕</button>
+                  </div>
+                )}
               </div>
-              {u.id !== me.id && isAdmin && <button onClick={() => removeMember(u)} style={{ border: 'none', background: 'transparent', color: '#e74c3c', fontSize: '18px', cursor: 'pointer' }}>✖</button>}
-            </div>
-          ))}
+            );
+          })}
         </div>
+        <button onClick={leaveFamily} disabled={leaving}
+          style={{ width: '100%', padding: '12px', marginTop: '14px', backgroundColor: '#fff', color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: leaving ? 'default' : 'pointer', opacity: leaving ? 0.6 : 1 }}>
+          {leaving ? '⏳ Виходимо...' : '🚪 Вийти з сім\'ї'}
+        </button>
       </div>
 
       <div style={cardStyle}>
