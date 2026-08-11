@@ -1,6 +1,8 @@
-import { Stats, Transaction, Category, BankUserBalances, fmtCur } from '../types';
+import { Stats, Transaction, Category, BankUserBalances, fmtCur, sortCurrencies } from '../types';
 import TransactionCard from '../components/TransactionCard';
 import EmptyState from '../components/EmptyState';
+
+const _num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function HomePage({
   stats, transactions, categories, bankBalances, onOpenInbox, onSeeAll, onAdd, onView,
@@ -18,35 +20,36 @@ export default function HomePage({
   const recent = transactions.slice(0, 5);
   const hasBank = bankBalances.length > 0;
 
-  const _num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-
-  // Валютний брейкдаун місяця: by_currency {code: {income, expense}}.
-  // UAH ЗАВЖДИ головна велика картка, якщо вона є; інші валюти — компактним рядком.
+  // --- Місячні дохід/витрати по валютах ---
   const byCurrency = stats?.by_currency || {};
-  const currencyCodes = Object.keys(byCurrency);
-  const mainCur = currencyCodes.includes('UAH') ? 'UAH' : (currencyCodes[0] || 'UAH');
+  const currencyCodes = sortCurrencies(Object.keys(byCurrency));
+  // UAH завжди головна, якщо є; інакше перша за порядком.
+  const mainCur = currencyCodes[0] || 'UAH';
   const mainStats = byCurrency[mainCur]
     ? { income: _num(byCurrency[mainCur].income), expense: _num(byCurrency[mainCur].expense) }
     : { income: _num(stats?.income), expense: _num(stats?.expense) };
   const secondaryCurs = currencyCodes.filter(c => c !== mainCur);
 
-  // Готівка: групуємо по (user, currency).
+  // --- Готівка: по (user, currency), групуємо по user_id ---
   const cashUsers = stats?.cash_by_user || [];
-
-  // НІКОЛИ не сумуємо різні валюти: total по кожній валюті окремо, з'єднуємо «|».
-  const cashTotalsByCur: { [cur: string]: number } = {};
-  cashUsers.forEach(u => {
+  const cashByUser: { user_id: number; user_name: string; byCur: Record<string, number> }[] = [];
+  const map = new Map<number, { user_name: string; byCur: Record<string, number> }>();
+  for (const u of cashUsers) {
     const cur = u.currency || 'UAH';
-    cashTotalsByCur[cur] = (cashTotalsByCur[cur] || 0) + _num(u.balance);
-  });
-  const cashHeader = Object.keys(cashTotalsByCur)
-    .map(cur => fmtCur(cashTotalsByCur[cur], cur))
-    .join(' | ');
+    const entry = map.get(u.user_id) || { user_name: u.user_name, byCur: {} };
+    entry.byCur[cur] = _num(entry.byCur[cur]) + _num(u.balance);
+    map.set(u.user_id, entry);
+  }
+  for (const [uid, entry] of map) cashByUser.push({ user_id: uid, ...entry });
+  cashByUser.sort((a, b) => a.user_name.localeCompare(b.user_name));
+
+  const fmtByCur = (byCur: Record<string, number>) =>
+    sortCurrencies(Object.keys(byCur)).map(cur => fmtCur(byCur[cur], cur));
 
   const statCard = (label: string, value: number, color: string, sign: string) => (
-    <div style={{ flex: 1, backgroundColor: '#fff', padding: '14px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-      <p style={{ margin: 0, color: '#7f8c8d', fontSize: '11px' }}>{label}</p>
-      <div style={{ color, fontWeight: 'bold', fontSize: '15px', marginTop: '4px' }}>{sign}{fmtCur(value, mainCur)}</div>
+    <div style={{ flex: 1, backgroundColor: '#fff', padding: '14px 12px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <p style={{ margin: 0, color: '#95a5a6', fontSize: '11px', fontWeight: '600', letterSpacing: '0.3px' }}>{label}</p>
+      <div style={{ color, fontWeight: '700', fontSize: '16px', marginTop: '4px', letterSpacing: '-0.2px' }}>{sign}{fmtCur(value, mainCur)}</div>
     </div>
   );
 
@@ -55,21 +58,21 @@ export default function HomePage({
       {stats && (
         <>
           <div style={{ display: 'flex', gap: '10px' }}>
-            {statCard('📈 Дохід', mainStats.income, '#27ae60', '+')}
-            {statCard('📉 Витрати', mainStats.expense, '#e74c3c', '-')}
-            {statCard('💰 Залишок', (mainStats.income - mainStats.expense), '#2c3e50', '')}
+            {statCard('Дохід', mainStats.income, '#27ae60', '+')}
+            {statCard('Витрати', mainStats.expense, '#e74c3c', '-')}
+            {statCard('Залишок', (mainStats.income - mainStats.expense), '#2c3e50', '')}
           </div>
+
           {secondaryCurs.length > 0 && (
-            <div style={{ backgroundColor: '#fff', padding: '10px 16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+            <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {secondaryCurs.map(cur => {
                 const v = byCurrency[cur] || { income: 0, expense: 0 };
                 return (
-                  <div key={cur} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
-                    <span style={{ fontSize: '12px', color: '#7f8c8d' }}>{cur}</span>
-                    <span style={{ fontSize: '12px', color: '#2c3e50' }}>
-                      <span style={{ color: '#27ae60' }}>+{fmtCur(v.income, cur)}</span>
-                      {'  '}
-                      <span style={{ color: '#e74c3c' }}>-{fmtCur(v.expense, cur)}</span>
+                  <div key={cur} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', color: '#7f8c8d', fontWeight: '600' }}>{cur}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '12px', color: '#27ae60', fontWeight: '600' }}>+{fmtCur(v.income, cur)}</span>
+                      <span style={{ fontSize: '12px', color: '#e74c3c', fontWeight: '600' }}>−{fmtCur(v.expense, cur)}</span>
                     </span>
                   </div>
                 );
@@ -79,19 +82,24 @@ export default function HomePage({
         </>
       )}
 
-      {cashUsers.length > 0 && (
+      {cashByUser.length > 0 && (
         <div style={{ backgroundColor: '#fff', padding: '14px 16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-            <span style={{ color: '#7f8c8d', fontSize: '14px', whiteSpace: 'nowrap' }}>💵 Готівка</span>
-            <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#2c3e50', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {cashHeader}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+            <span style={{ color: '#2c3e50', fontSize: '14px', fontWeight: '700' }}>💵 Готівка</span>
+            <span style={{ fontWeight: '600', fontSize: '13px', color: '#7f8c8d', textAlign: 'right' }}>
+              {fmtByCur(cashByUser.reduce((acc, u) => {
+                for (const [c, v] of Object.entries(u.byCur)) acc[c] = _num(acc[c]) + _num(v);
+                return acc;
+              }, {} as Record<string, number>)).join('  •  ')}
             </span>
           </div>
-          <div style={{ borderTop: '1px solid #f1f2f6', paddingTop: '4px', display: 'flex', flexDirection: 'column' }}>
-            {cashUsers.map(u => (
-              <div key={`${u.user_id}-${u.currency || 'UAH'}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
-                <span style={{ fontSize: '12px', color: '#7f8c8d' }}>👤 {u.user_name}</span>
-                <span style={{ fontWeight: '600', fontSize: '12px', color: '#2c3e50' }}>{fmtCur(u.balance, u.currency || 'UAH')}</span>
+          <div style={{ borderTop: '1px solid #f1f2f6', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {cashByUser.map(u => (
+              <div key={u.user_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0' }}>
+                <span style={{ fontSize: '13px', color: '#34495e', fontWeight: '600' }}>👤 {u.user_name}</span>
+                <span style={{ fontSize: '12px', color: '#2c3e50', fontWeight: '600' }}>
+                  {fmtByCur(u.byCur).join('  •  ')}
+                </span>
               </div>
             ))}
           </div>
@@ -134,7 +142,7 @@ export default function HomePage({
         <EmptyState
           emoji="💸"
           title="Тут з'являться ваші операції"
-          subtitle="Додайте першу витрату або дохід — натисніть кнопку нижче, або напишіть боту «150 такси»."
+          subtitle="Додайте першу витрату або дохід — натисніть кнопку нижче, або напишіть боту «150 таксі»."
           actionLabel="+ Додати транзакцію"
           onAction={onAdd}
         />

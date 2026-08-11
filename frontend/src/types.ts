@@ -36,3 +36,8 @@ export const fmtCur = (n: number | string | null | undefined, currency?: string 
 };
 
 export const CURRENCIES = ['UAH', 'USD', 'EUR'];
+
+// Жорсткий порядок валют: UAH завжди перша, потім USD, EUR, далі решта (за назвою).
+const CURRENCY_RANK: Record<string, number> = { UAH: 0, USD: 1, EUR: 2 };
+export const sortCurrencies = (currencies: string[]) =>
+  [...currencies].sort((a, b) => (CURRENCY_RANK[a] ?? 99) - (CURRENCY_RANK[b] ?? 99) || a.localeCompare(b));
