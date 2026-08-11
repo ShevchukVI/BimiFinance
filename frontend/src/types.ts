@@ -23,11 +23,16 @@ export const CURRENCY_SYMBOLS: Record<string, string> = { UAH: '₴', USD: '$', 
 
 export const curSym = (currency?: string | null) => CURRENCY_SYMBOLS[currency || 'UAH'] || currency || '₴';
 
-export const fmt = (n: number) => `${n.toLocaleString('uk-UA')} ₴`;
+const _num = (n: number | string | null | undefined): number => {
+  const v = typeof n === 'number' ? n : parseFloat(String(n));
+  return Number.isFinite(v) ? v : 0;
+};
 
-export const fmtCur = (n: number, currency?: string | null) => {
+export const fmt = (n: number | string | null | undefined) => `${_num(n).toLocaleString('uk-UA')} ₴`;
+
+export const fmtCur = (n: number | string | null | undefined, currency?: string | null) => {
   const sym = curSym(currency);
-  return `${n.toLocaleString('uk-UA')} ${sym}`;
+  return `${_num(n).toLocaleString('uk-UA')} ${sym}`;
 };
 
 export const CURRENCIES = ['UAH', 'USD', 'EUR'];

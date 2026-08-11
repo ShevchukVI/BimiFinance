@@ -22,7 +22,10 @@ export default function HomePage({
   const byCurrency = stats?.by_currency || {};
   const hasMultiCurrency = Object.keys(byCurrency).length > 1;
   const mainCur = (Object.keys(byCurrency)[0] || 'UAH');
-  const mainStats = byCurrency[mainCur] || { income: stats?.income || 0, expense: stats?.expense || 0 };
+  const _num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const mainStats = byCurrency[mainCur]
+    ? { income: _num(byCurrency[mainCur].income), expense: _num(byCurrency[mainCur].expense) }
+    : { income: _num(stats?.income), expense: _num(stats?.expense) };
 
   // Готівка: групуємо по (user, currency).
   const cashUsers = stats?.cash_by_user || [];
@@ -65,7 +68,7 @@ export default function HomePage({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
             <span style={{ color: '#7f8c8d', fontSize: '14px' }}>💵 Готівка</span>
             <span style={{ fontWeight: 'bold', fontSize: '15px', color: '#2c3e50' }}>
-              {fmtCur(cashUsers.reduce((s, u) => s + u.balance, 0), mainCur)}
+              {fmtCur(cashUsers.reduce((s, u) => s + (Number(u.balance) || 0), 0), mainCur)}
             </span>
           </div>
           <div style={{ borderTop: '1px solid #f1f2f6', paddingTop: '8px' }}>
