@@ -67,6 +67,19 @@ def run_migrations():
             "ALTER TABLE jars ADD COLUMN IF NOT EXISTS currency VARCHAR(8) NOT NULL DEFAULT 'UAH'"
         ))
 
+        # --- Housing («Житло»): нові таблиці створює create_all; тут — колонки
+        # для вже існуючих utility_meters / utility_readings (V1 foundation).
+        for stmt in (
+            "ALTER TABLE utility_meters ADD COLUMN IF NOT EXISTS provider_id INTEGER REFERENCES utility_providers(id)",
+            "ALTER TABLE utility_meters ADD COLUMN IF NOT EXISTS zone VARCHAR",
+            "ALTER TABLE utility_meters ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+            "ALTER TABLE utility_meters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
+            "ALTER TABLE utility_readings ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'manual'",
+            "ALTER TABLE utility_readings ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)",
+            "CREATE INDEX IF NOT EXISTS ix_utility_readings_meter_id ON utility_readings (meter_id)",
+        ):
+            conn.execute(text(stmt))
+
         # Backfill: переносимо історичний баланс скарбничок у синтетичні транзакції
         # поповнення (type='Поповнення', jar_id=<id>), щоб динамічний баланс
         # (SUM amount WHERE jar_id=...) збігався зі старим збереженим balance.

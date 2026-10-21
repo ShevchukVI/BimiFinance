@@ -1,20 +1,26 @@
-fastapi
-uvicorn[standard]
+# Pinned to the versions running in PROD (2026-10). Unpinned SQLAlchemy 2.1 switches
+# postgresql:// to psycopg v3 and breaks startup — bump deliberately, never implicitly.
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.52.1
 
-sqlalchemy
-psycopg2-binary
+sqlalchemy==2.0.51
+psycopg2-binary==2.9.12
 
 # Migrations
-alembic
+alembic==1.19.1
 
-pydantic
-pydantic-settings
+pydantic==2.13.4
+pydantic-settings==2.15.0
 
-python-dotenv
+python-dotenv==1.2.2
 
 # Phase 1: Security
-cryptography
-PyJWT
+cryptography==50.0.0
+PyJWT==2.13.0
 
 # Banking providers (async HTTP)
-aiohttp
+aiohttp==3.14.3
+
+# IANA timezones (Europe/Kyiv) for slim images
+tzdata

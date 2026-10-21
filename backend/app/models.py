@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Date, Float, ForeignKey, Integer, String, BigInteger, Text
+from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -108,26 +109,169 @@ class BankAccount(Base):
     user = relationship("User", back_populates="bank_accounts")
 
 
+# ============================================================================
+# Housing («Житло»): profile, providers (utilities / rent / mortgage), meters,
+# readings, bills (with lines), payments, notes, power outages, reminder log.
+# Money convention: positive balance = debt (треба доплатити), negative = overpay.
+# ============================================================================
+
+class HousingProfile(Base):
+    __tablename__ = "housing_profiles"
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, unique=True)
+    mode = Column(String, nullable=False, default="rent")  # rent | mortgage | own | off
+    title = Column(String, default="")  # e.g. "Квартира"
+    area_m2 = Column(Float, nullable=True)
+    heating = Column(String, default="electric")  # electric | gas | central | other | none
+    svitlobot_channel = Column(String, nullable=True)  # public t.me channel of a svitlobot
+    readings_day = Column(Integer, default=1)  # day of month to submit meter readings
+    reminders_enabled = Column(Boolean, default=True, nullable=False)
+
+
+class UtilityProvider(Base):
+    __tablename__ = "utility_providers"
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)  # "ONDO", "Нафтогаз", "Оренда"
+    service = Column(String, nullable=False)  # electricity|gas|gas_delivery|water|heating|maintenance|waste|internet|rent|mortgage|other
+    icon = Column(String, default="")
+    billing = Column(String, nullable=False, default="metered")  # metered | fixed | manual
+    fixed_amount = Column(Float, nullable=True)  # monthly charge for fixed billing (rent, maintenance, waste)
+    due_day = Column(Integer, nullable=True)  # pay-by day of month
+    account_number = Column(String, default="")  # особовий рахунок
+    pay_url = Column(String, default="")
+    start_date = Column(Date, nullable=True)  # ledger start for providers without bills
+    opening_balance = Column(Float, default=0.0)  # debt at start_date (+ debt, - overpay)
+    note = Column(String, default="")
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0)
+
+    meters = relationship("UtilityMeter", back_populates="provider")
+    bills = relationship("UtilityBill", back_populates="provider", cascade="all, delete-orphan")
+    payments = relationship("UtilityPayment", back_populates="provider", cascade="all, delete-orphan")
+
+
 class UtilityMeter(Base):
     __tablename__ = "utility_meters"
     id = Column(Integer, primary_key=True)
     family_id = Column(Integer, ForeignKey("families.id"), nullable=False)
     name = Column(String, nullable=False)
     utility_type = Column(String, nullable=False)  # electricity, gas, water, heating
-    unit = Column(String, nullable=False)  # kWh, m³, etc.
-    tariff = Column(Float, default=0.0)  # current tariff per unit
+    unit = Column(String, nullable=False)  # кВт·год, м³
+    tariff = Column(Float, default=0.0)  # current price per unit
+    provider_id = Column(Integer, ForeignKey("utility_providers.id"), nullable=True)
+    zone = Column(String, nullable=True)  # day | night | None (single-zone)
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0)
 
     family = relationship("Family")
+    provider = relationship("UtilityProvider", back_populates="meters")
     readings = relationship("UtilityReading", back_populates="meter", cascade="all, delete-orphan")
 
 
 class UtilityReading(Base):
     __tablename__ = "utility_readings"
     id = Column(Integer, primary_key=True)
-    meter_id = Column(Integer, ForeignKey("utility_meters.id"), nullable=False)
+    meter_id = Column(Integer, ForeignKey("utility_meters.id"), nullable=False, index=True)
     date = Column(Date, nullable=False)
     value = Column(Float, nullable=False)
-    amount_paid = Column(Float, default=0.0)
+    amount_paid = Column(Float, default=0.0)  # legacy, unused
     note = Column(String, default="")
+    source = Column(String, default="manual")  # manual | bill | import
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     meter = relationship("UtilityMeter", back_populates="readings")
+
+
+class UtilityBill(Base):
+    """One monthly bill (платіжка) of a provider. to_pay = opening - paid + accrued + adjustment."""
+    __tablename__ = "utility_bills"
+    __table_args__ = (UniqueConstraint("provider_id", "period", name="uq_bill_provider_period"),)
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    provider_id = Column(Integer, ForeignKey("utility_providers.id"), nullable=False)
+    period = Column(Date, nullable=False)  # first day of the billed month
+    issued_on = Column(Date, nullable=True)
+    opening_balance = Column(Float, default=0.0)  # борг на початок періоду
+    paid = Column(Float, default=0.0)  # сплачено за період (за даними постачальника)
+    accrued = Column(Float, default=0.0)  # нараховано
+    adjustment = Column(Float, default=0.0)  # перерахунок / пеня / субсидія
+    to_pay = Column(Float, default=0.0)  # до сплати на кінець періоду
+    consumption = Column(Float, nullable=True)
+    note = Column(String, default="")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    provider = relationship("UtilityProvider", back_populates="bills")
+    lines = relationship("UtilityBillLine", back_populates="bill", cascade="all, delete-orphan",
+                         order_by="UtilityBillLine.id")
+
+
+class UtilityBillLine(Base):
+    __tablename__ = "utility_bill_lines"
+    id = Column(Integer, primary_key=True)
+    bill_id = Column(Integer, ForeignKey("utility_bills.id"), nullable=False, index=True)
+    meter_id = Column(Integer, ForeignKey("utility_meters.id"), nullable=True)
+    label = Column(String, default="")
+    prev_value = Column(Float, nullable=True)
+    curr_value = Column(Float, nullable=True)
+    volume = Column(Float, nullable=True)
+    tariff = Column(Float, nullable=True)
+    amount = Column(Float, nullable=True)
+
+    bill = relationship("UtilityBill", back_populates="lines")
+
+
+class UtilityPayment(Base):
+    __tablename__ = "utility_payments"
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    provider_id = Column(Integer, ForeignKey("utility_providers.id"), nullable=False)
+    date = Column(Date, nullable=False)
+    amount = Column(Float, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    note = Column(String, default="")
+    transaction_id = Column(Integer, ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True)
+
+    provider = relationship("UtilityProvider", back_populates="payments")
+    user = relationship("User")
+
+
+class HousingNote(Base):
+    """Timeline note. kind='heating' with date..end_date marks a heating period (end_date NULL = still on)."""
+    __tablename__ = "housing_notes"
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=True)
+    kind = Column(String, nullable=False, default="note")  # note | heating | away | repair
+    text = Column(String, default="")
+    provider_id = Column(Integer, ForeignKey("utility_providers.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class PowerOutage(Base):
+    """Compact outage history (one row per outage) per svitlobot channel. Timestamps are naive UTC."""
+    __tablename__ = "power_outages"
+    __table_args__ = (UniqueConstraint("channel", "started_at", name="uq_outage_channel_start"),)
+    id = Column(Integer, primary_key=True)
+    channel = Column(String, nullable=False, index=True)
+    started_at = Column(DateTime, nullable=False)
+    ended_at = Column(DateTime, nullable=True)  # NULL = still without power
+    off_post_id = Column(Integer, nullable=True)
+    on_post_id = Column(Integer, nullable=True)
+
+
+class PowerSyncState(Base):
+    __tablename__ = "power_sync_state"
+    channel = Column(String, primary_key=True)
+    last_post_id = Column(Integer, default=0)
+    synced_at = Column(DateTime, nullable=True)
+
+
+class HousingReminderLog(Base):
+    __tablename__ = "housing_reminder_log"
+    __table_args__ = (UniqueConstraint("family_id", "key", name="uq_reminder_family_key"),)
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False)
+    key = Column(String, nullable=False)
+    sent_on = Column(Date, nullable=False)

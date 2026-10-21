@@ -11,3 +11,5 @@ config.py
 dist/node_modules/
 dist/
 node_modules/
+# backend settings module has no secrets (env-only) — must be in git
+!backend/app/config.py

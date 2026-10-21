@@ -83,8 +83,12 @@ def seeded(db):
 
 
 def make_tx(db, family_id, user_id, category_id, amount, t_type, title="t",
-            account="Готівка", date="2026-08-05", mono_id=None, currency="UAH"):
-    from datetime import datetime as _dt
+            account="Готівка", date=None, mono_id=None, currency="UAH"):
+    from datetime import datetime as _dt, date as _date
+    if date is None:
+        # поточний місяць: stats рахують лише поточний місяць (раніше тест-дата
+        # '2026-08-05' робила 3 тести залежними від календаря)
+        date = _date.today()
     if isinstance(date, str):
         date = _dt.strptime(date, "%Y-%m-%d").date()
     tx = models.Transaction(family_id=family_id, user_id=user_id, category_id=category_id,
