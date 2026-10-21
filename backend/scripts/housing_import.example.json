@@ -1,0 +1,27 @@
+{
+  "profile": {"mode": "rent", "title": "Квартира", "area_m2": 50, "heating": "electric",
+              "svitlobot_channel": null, "readings_day": 1},
+  "rent": {"name": "Оренда", "fixed_amount": 10000, "due_day": 1, "start_date": "2026-01-01", "note": ""},
+  "providers": {
+    "electricity": {"name": "Електропостачальник", "service": "electricity", "billing": "metered", "due_day": 20, "icon": "⚡",
+                    "meters": {"el_day": {"name": "Світло · день", "utility_type": "electricity", "unit": "кВт·год", "zone": "day", "tariff": 4.32},
+                               "el_night": {"name": "Світло · ніч", "utility_type": "electricity", "unit": "кВт·год", "zone": "night", "tariff": 2.16}}},
+    "gas": {"name": "Газопостачальник", "service": "gas", "billing": "metered", "due_day": 20, "icon": "🔥",
+            "meters": {"gas": {"name": "Газ", "utility_type": "gas", "unit": "м³", "tariff": 7.96}}},
+    "water": {"name": "Водоканал", "service": "water", "billing": "metered", "due_day": 20, "icon": "💧",
+              "meters": {"water": {"name": "Вода", "utility_type": "water", "unit": "м³", "tariff": 29.21}}},
+    "maintenance": {"name": "Управитель будинку", "service": "maintenance", "billing": "fixed", "fixed_amount": 400, "due_day": 20, "icon": "🏢", "meters": {}},
+    "waste": {"name": "Вивіз сміття", "service": "waste", "billing": "fixed", "fixed_amount": 40, "due_day": 20, "icon": "🗑", "meters": {}}
+  },
+  "sheets": [
+    {"name": "Квартира", "kind": "journal", "categories": {
+      "Світло": ["electricity", null], "Світло (День)": ["electricity", "el_day"], "Світло (Ніч)": ["electricity", "el_night"],
+      "Газ (Спож.)": ["gas", "gas"], "Вода": ["water", "water"], "Обслуг. буд.": ["maintenance", null], "Сміття": ["waste", null]}},
+    {"name": "Світло", "kind": "zones_bill", "provider": "electricity", "zones": {"день": "el_day", "ніч": "el_night"},
+     "own_readings_cols": {"date": 6, "el_day": 7, "el_night": 8}},
+    {"name": "Газ", "kind": "gas_blocks", "provider": "gas", "meter": "gas"},
+    {"name": "Вода", "kind": "simple4", "provider": "water"},
+    {"name": "Будинок", "kind": "simple3", "provider": "maintenance"},
+    {"name": "Сміття", "kind": "simple4", "provider": "waste"}
+  ]
+}
