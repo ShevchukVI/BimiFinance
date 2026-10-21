@@ -1,25 +1,50 @@
-import { Transaction, Category, cleanCatName, fmtCur } from '../types';
+import { Fragment } from 'react';
+import { Transaction, Category, cleanCatName } from '../types';
+import { dateHeader, money } from '../format';
+import { Card, Row } from '../ui';
 
-export default function TransactionCard({ tx, categories, onClick }: { tx: Transaction; categories: Category[]; onClick: () => void }) {
-  const cat = categories.find(c => c.id === tx.category_id);
-  const catName = cleanCatName(cat?.name);
+export const catIcon = (cat?: Category) => {
+  const m = (cat?.name || '').match(/^\p{Extended_Pictographic}[️‍\p{Extended_Pictographic}]*/u);
+  return cat?.icon && cat.icon !== '•' ? cat.icon : (m ? m[0] : '💸');
+};
+
+export function TxAmount({ tx, big }: { tx: Transaction; big?: boolean }) {
   const cur = tx.currency || 'UAH';
+  const style = big ? { fontSize: 34, fontWeight: 800 } : { fontWeight: 600 };
+  if (tx.type === 'Переказ') return <span className="muted" style={style}>↔ {money(Math.abs(tx.amount), cur)}</span>;
+  const income = tx.type !== 'Витрати';
+  return <span className={income ? 'pos' : ''} style={style}>{income ? '+' : '−'}{money(tx.amount, cur)}</span>;
+}
+
+export function TxRow({ tx, categories, onClick }: { tx: Transaction; categories: Category[]; onClick: () => void }) {
+  const cat = categories.find(c => c.id === tx.category_id);
+  const pending = (cat?.name || '').includes('Очікує');
+  const sub = [tx.type === 'Переказ' ? 'Переказ' : cleanCatName(cat?.name), tx.user_name, tx.account !== 'Готівка' ? tx.account : null]
+    .filter(Boolean).join(' · ');
   return (
-    <div onClick={onClick} style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-      <div style={{ overflow: 'hidden', paddingRight: '10px' }}>
-        <div style={{ fontWeight: 'bold', fontSize: '15px', color: '#2c3e50', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.title}</div>
-        <div style={{ fontSize: '12px', color: '#95a5a6', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-          <span>{catName}</span>
-          {tx.user_name && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>• 👤 {tx.user_name}</span>}
-          <span>• {tx.account}</span>
-          <span>• {tx.date}</span>
-        </div>
-      </div>
-      {tx.type === 'Переказ' ? (
-        <div style={{ fontWeight: 'bold', fontSize: '15px', whiteSpace: 'nowrap', color: '#7f8c8d' }}>↔️ {fmtCur(tx.amount, cur)}</div>
-      ) : (
-        <div style={{ fontWeight: 'bold', fontSize: '16px', whiteSpace: 'nowrap', color: tx.type === 'Витрати' ? '#e74c3c' : '#27ae60' }}>{tx.type === 'Витрати' ? '-' : '+'}{fmtCur(tx.amount, cur)}</div>
-      )}
+    <Row icon={tx.type === 'Переказ' ? '↔️' : catIcon(cat)} title={tx.title}
+      sub={pending ? <span className="warn">Очікує категорію · {tx.account}</span> : sub}
+      end={<TxAmount tx={tx} />} onClick={onClick} />
+  );
+}
+
+/** Transactions grouped by day under «Сьогодні / Вчора / 15 жовтня» headers. */
+export function TxList({ transactions, categories, onView }: { transactions: Transaction[]; categories: Category[]; onView: (t: Transaction) => void }) {
+  const groups: { date: string; items: Transaction[] }[] = [];
+  for (const tx of transactions) {
+    const g = groups[groups.length - 1];
+    if (g && g.date === tx.date) g.items.push(tx); else groups.push({ date: tx.date, items: [tx] });
+  }
+  return (
+    <div>
+      {groups.map(g => (
+        <Fragment key={g.date}>
+          <div className="date-head">{dateHeader(g.date)}</div>
+          <Card flush>
+            {g.items.map(tx => <TxRow key={tx.id} tx={tx} categories={categories} onClick={() => onView(tx)} />)}
+          </Card>
+        </Fragment>
+      ))}
     </div>
   );
 }

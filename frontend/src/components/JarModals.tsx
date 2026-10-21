@@ -2,84 +2,77 @@ import { useState } from 'react';
 import api from '../api';
 import { toast } from '../toast';
 import { Jar } from '../types';
-
-const sheet: React.CSSProperties = {
-  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-  zIndex: 110, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-};
-const card: React.CSSProperties = {
-  backgroundColor: '#fff', borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
-  padding: '25px', paddingBottom: 'calc(25px + env(safe-area-inset-bottom))',
-};
-const input: React.CSSProperties = {
-  width: '100%', padding: '15px', borderRadius: '12px', border: '1px solid #dfe6e9',
-  fontSize: '16px', boxSizing: 'border-box', marginBottom: '15px',
-};
-const closeBtn: React.CSSProperties = { border: 'none', background: 'transparent', fontSize: '24px', color: '#95a5a6', cursor: 'pointer' };
+import { money, parseNum } from '../format';
+import { haptic } from '../tg';
+import { Button, Chips, Field, Sheet } from '../ui';
 
 export function CreateJarModal({ familyId, onClose, onCreated }: {
   familyId: number; onClose: () => void; onCreated: (j: Jar) => void;
 }) {
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
-  const valid = name.trim() && parseFloat(goal.replace(',', '.')) > 0;
+  const [busy, setBusy] = useState(false);
+  const valid = name.trim() && parseNum(goal) > 0;
 
   const create = async () => {
     if (!valid) return;
+    setBusy(true);
     try {
-      const r = await api.post('/jars', { family_id: familyId, name: name.trim(), goal: parseFloat(goal.replace(',', '.')) });
+      const r = await api.post('/jars', { family_id: familyId, name: name.trim(), goal: parseNum(goal) });
       onCreated(r.data);
-      toast('✅ Скарбничку створено');
+      haptic('success');
+      toast('Ціль створено');
       onClose();
     } catch {
       toast('Помилка створення', 'err');
     }
+    setBusy(false);
   };
 
   return (
-    <div style={sheet}>
-      <div style={card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h3 style={{ margin: 0, color: '#2c3e50' }}>Нова ціль</h3>
-          <button onClick={onClose} style={closeBtn}>×</button>
-        </div>
-        <input type="text" placeholder="Назва (напр. Відпустка)" value={name} onChange={e => setName(e.target.value)} style={input} />
-        <input inputMode="decimal" placeholder="Потрібна сума" value={goal} onChange={e => setGoal(e.target.value)} style={input} />
-        <button onClick={create} disabled={!valid} style={{ width: '100%', padding: '15px', backgroundColor: valid ? '#3498db' : '#bdc3c7', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '16px' }}>Створити</button>
-      </div>
-    </div>
+    <Sheet title="Нова ціль" icon="🎯" onClose={onClose}
+      footer={<Button onClick={create} disabled={!valid} busy={busy}>Створити</Button>}>
+      <Field label="Назва"><input className="input" placeholder="Напр. Відпустка" value={name} autoFocus onChange={e => setName(e.target.value)} /></Field>
+      <Field label="Скільки потрібно"><input className="input tnum" inputMode="decimal" placeholder="0 ₴" value={goal} onChange={e => setGoal(e.target.value)} /></Field>
+    </Sheet>
   );
 }
 
 export function TopUpJarModal({ jar, onClose, onToppedUp }: {
-  jar: Jar; onClose: () => void; onToppedUp: (j: Jar, amount: number) => void;
+  jar: Jar; onClose: () => void; onToppedUp: (j: Jar) => void;
 }) {
+  const [mode, setMode] = useState<'topup' | 'withdraw'>('topup');
   const [amount, setAmount] = useState('');
-  const num = parseFloat(amount.replace(',', '.'));
-  const valid = !isNaN(num) && num > 0;
+  const [busy, setBusy] = useState(false);
+  const num = parseNum(amount);
+  const valid = Number.isFinite(num) && num > 0 && (mode === 'topup' || num <= jar.balance);
+  const left = Math.max(jar.goal - jar.balance, 0);
 
-  const topup = async () => {
+  const submit = async () => {
     if (!valid) return;
+    setBusy(true);
     try {
-      const r = await api.post(`/jars/${jar.id}/topup`, { amount: num });
-      onToppedUp(r.data, num);
-      toast('✅ Поповнено');
+      // Бекенд сам створює jar-транзакцію (готівка ↔ скарбничка) — окремої витрати не потрібно.
+      const r = await api.post(`/jars/${jar.id}/${mode}`, { amount: num });
+      onToppedUp(r.data);
+      haptic('success');
+      toast(mode === 'topup' ? 'Поповнено' : 'Знято');
       onClose();
     } catch {
-      toast('Помилка поповнення', 'err');
+      toast('Помилка операції', 'err');
     }
+    setBusy(false);
   };
 
   return (
-    <div style={sheet}>
-      <div style={card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h3 style={{ margin: 0, color: '#2c3e50' }}>Поповнити «{jar.name}»</h3>
-          <button onClick={onClose} style={closeBtn}>×</button>
-        </div>
-        <input inputMode="decimal" placeholder="Сума поповнення" value={amount} autoFocus onChange={e => setAmount(e.target.value)} style={input} />
-        <button onClick={topup} disabled={!valid} style={{ width: '100%', padding: '15px', backgroundColor: valid ? '#2ecc71' : '#bdc3c7', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '16px' }}>Закинути гроші</button>
+    <Sheet title={jar.name} icon="🎯" onClose={onClose}
+      footer={<Button onClick={submit} disabled={!valid} busy={busy}>{mode === 'topup' ? 'Закинути' : 'Зняти'}</Button>}>
+      <Chips value={mode} onChange={setMode} options={[{ value: 'topup', label: '⬆️ Поповнити' }, { value: 'withdraw', label: '⬇️ Зняти' }]} />
+      <input className="input input--big tnum" inputMode="decimal" placeholder="0 ₴" value={amount} autoFocus onChange={e => setAmount(e.target.value)} />
+      <div className="muted small">
+        Зараз {money(jar.balance, jar.currency)} з {money(jar.goal, jar.currency)}
+        {mode === 'topup' && left > 0 && <> · до цілі {money(left, jar.currency)} <button className="link" onClick={() => setAmount(String(left))}>закинути все</button></>}
       </div>
-    </div>
+    </Sheet>
   );
 }

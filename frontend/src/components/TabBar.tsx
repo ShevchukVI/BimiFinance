@@ -1,22 +1,24 @@
 import { Tab } from '../types';
+import { haptic } from '../tg';
 
-export default function TabBar({ activeTab, onTab }: { activeTab: Tab; onTab: (t: Tab) => void }) {
-  const tabs: { key: Tab; emoji: string; label: string }[] = [
-    { key: 'home', emoji: '🏠', label: 'Головна' },
-    { key: 'transactions', emoji: '💸', label: 'Історія' },
-    { key: 'jars', emoji: '🏦', label: 'Цілі' },
-    { key: 'notes', emoji: '📝', label: 'Чернетка' },
-    { key: 'analytics', emoji: '📊', label: 'Аналітика' },
-    { key: 'settings', emoji: '⚙️', label: 'Меню' },
-  ];
+const TABS: { key: Tab; icon: string; label: string }[] = [
+  { key: 'home', icon: '🏠', label: 'Головна' },
+  { key: 'transactions', icon: '💸', label: 'Історія' },
+  { key: 'housing', icon: '🏡', label: 'Житло' },
+  { key: 'analytics', icon: '📊', label: 'Аналітика' },
+  { key: 'more', icon: '☰', label: 'Ще' },
+];
+
+export default function TabBar({ activeTab, onTab, hidden = [] }: { activeTab: Tab; onTab: (t: Tab) => void; hidden?: Tab[] }) {
   return (
-    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '70px', backgroundColor: '#fff', display: 'flex', justifyContent: 'space-around', alignItems: 'center', boxShadow: '0 -2px 10px rgba(0,0,0,0.05)', paddingBottom: 'env(safe-area-inset-bottom)', zIndex: 5 }}>
-      {tabs.map(t => (
-        <div key={t.key} onClick={() => onTab(t.key)} style={{ textAlign: 'center', cursor: 'pointer', color: activeTab === t.key ? '#3498db' : '#95a5a6', width: `${100 / tabs.length}%` }}>
-          <div style={{ fontSize: '22px' }}>{t.emoji}</div>
-          <div style={{ fontSize: '10px', fontWeight: activeTab === t.key ? 'bold' : 'normal', marginTop: '4px' }}>{t.label}</div>
-        </div>
+    <nav className="tabbar">
+      {TABS.filter(t => !hidden.includes(t.key)).map(t => (
+        <button key={t.key} className={`tab ${activeTab === t.key ? 'tab--on' : ''}`}
+          onClick={() => { if (t.key !== activeTab) { haptic('select'); onTab(t.key); window.scrollTo(0, 0); } }}>
+          <span className="tab__icon">{t.icon}</span>
+          <span>{t.label}</span>
+        </button>
       ))}
-    </div>
+    </nav>
   );
 }

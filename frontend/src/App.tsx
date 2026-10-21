@@ -1,20 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import api, { setAuthToken } from './api';
 import { toast } from './toast';
+import { copyText, haptic, startParam } from './tg';
 import Avatar from './components/Avatar';
 import TabBar from './components/TabBar';
 import ToastHost from './components/Toast';
 import TxModal from './components/TxModal';
+import TxDetailsSheet from './components/TxDetailsSheet';
 import InboxModal from './components/InboxModal';
 import { CreateJarModal, TopUpJarModal } from './components/JarModals';
 import HomePage from './pages/HomePage';
 import TransactionsPage from './pages/TransactionsPage';
-import JarsPage from './pages/JarsPage';
-import NotesPage from './pages/NotesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
-import SettingsPage from './pages/SettingsPage';
+import MorePage from './pages/MorePage';
+import HousingPage, { HousingAction } from './housing/HousingPage';
+import { housingApi } from './housing/api';
+import type { Overview } from './housing/types';
 import type { Transaction, Category, Stats, Note, Jar, Tab, FamilyMembership, FamilyUser, Me, BankUserBalances } from './types';
-import { fmtCur } from './types';
+import { Spinner } from './ui';
+
+const LIMIT = 50;
+const TABS: Tab[] = ['home', 'transactions', 'housing', 'analytics', 'more'];
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -29,15 +35,18 @@ export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [jars, setJars] = useState<Jar[]>([]);
   const [bankBalances, setBankBalances] = useState<BankUserBalances[]>([]);
+  const [housing, setHousing] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [tgUser, setTgUser] = useState<any>(null);
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const LIMIT = 50;
 
-  const [activeTab, setActiveTab] = useState<Tab>('home');
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const initial = startParam();
+  const [activeTab, setActiveTab] = useState<Tab>(TABS.includes(initial as Tab) ? (initial as Tab) : initial === 'readings' ? 'housing' : 'home');
+  const [housingAction, setHousingAction] = useState<HousingAction>(initial === 'readings' ? 'readings' : null);
+  const [moreScreen, setMoreScreen] = useState<{ screen: 'jars' | null; key: number }>({ screen: null, key: 0 });
+  const [addType, setAddType] = useState<'Витрати' | 'Поповнення' | null>(null);
   const [viewingTx, setViewingTx] = useState<Transaction | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isInboxOpen, setIsInboxOpen] = useState(false);
@@ -46,15 +55,9 @@ export default function App() {
   const [noteText, setNoteText] = useState('');
   const [splitBy, setSplitBy] = useState(1);
 
-  const triggerHaptic = (style: 'light' | 'medium' | 'heavy' | 'success') => {
-    const tg = (window as any).Telegram?.WebApp;
-    if (tg?.HapticFeedback) {
-      style === 'success' ? tg.HapticFeedback.notificationOccurred('success') : tg.HapticFeedback.impactOccurred(style);
-    }
-  };
-  const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text); triggerHaptic('success'); toast('📋 Скопійовано'); };
+  const copyToClipboard = (text: string) => { copyText(text); haptic('success'); toast('Скопійовано'); };
 
-  // Завантаження всіх family-scoped даних (викликається і при перемиканні сім'ї).
+  // Усі family-scoped дані (і при перемиканні сім'ї). «Житло» — не блокує решту.
   const loadFamilyData = useCallback(async (fId: number) => {
     const [txRes, catRes, statsRes, usersRes, notesRes, jarsRes, famRes, bankRes] = await Promise.all([
       api.get(`/families/${fId}/transactions?skip=0&limit=${LIMIT}`),
@@ -75,16 +78,16 @@ export default function App() {
     setJars(jarsRes.data);
     setNotes(notesRes.data);
     setBankBalances(bankRes.data || []);
-    if (notesRes.data.length > 0) setNoteText(notesRes.data[0].content);
-    else setNoteText('');
+    setNoteText(notesRes.data.length > 0 ? notesRes.data[0].content : '');
     const myFam = famRes.data.find((f: any) => f.id === fId) || famRes.data[0];
     if (myFam) { setFamilyName(myFam.name); setInviteCode(myFam.invite_code); }
+    setHousing(null);
+    housingApi.overview(fId).then(setHousing).catch(() => { /* housing is optional */ });
   }, []);
 
   useEffect(() => {
     const webApp = (window as any).Telegram?.WebApp;
-    if (!webApp || !webApp.initData) { setAuthError("Відкрийте застосунок через Telegram-бота."); setLoading(false); return; }
-    webApp.ready(); webApp.expand();
+    if (!webApp || !webApp.initData) { setAuthError('Відкрийте застосунок через Telegram-бота.'); setLoading(false); return; }
     setTgUser(webApp.initDataUnsafe?.user || null);
     (async () => {
       try {
@@ -95,17 +98,14 @@ export default function App() {
         const fId = meData.current_active_family_id;
         if (!fId) { setAuthError("Немає активної сім'ї. Натисніть /start у боті."); setLoading(false); return; }
         setFamilyId(fId);
-        const famsRes = await api.get('/users/me/families');
-        setFamilies(famsRes.data);
+        setFamilies((await api.get('/users/me/families')).data);
         await loadFamilyData(fId);
         setLoading(false);
       } catch (error: any) {
         const s = error?.response?.status;
         const detail = error?.response?.data?.detail;
-        // Якщо бекенд повернув конкретну причину (напр. "Invalid initData signature"),
-        // показуємо її — це допомагає знайти місконфіг (DEV замість PROD тощо).
-        if (s === 401) setAuthError(detail && typeof detail === 'string' ? `Сесія не підтверджена: ${detail}` : "Сесія не підтверджена. Закрийте та відкрийте застосунок ще раз.");
-        else if (s === 404) setAuthError("Акаунт не знайдено. Натисніть /start у боті.");
+        if (s === 401) setAuthError(detail && typeof detail === 'string' ? `Сесія не підтверджена: ${detail}` : 'Сесія не підтверджена. Закрийте та відкрийте застосунок ще раз.');
+        else if (s === 404) setAuthError('Акаунт не знайдено. Натисніть /start у боті.');
         else setAuthError("Помилка з'єднання. Спробуйте пізніше.");
         setLoading(false);
       }
@@ -114,7 +114,14 @@ export default function App() {
 
   const refreshStats = async () => {
     if (!familyId) return;
-    try { const r = await api.get(`/families/${familyId}/stats`); setStats(r.data); } catch { /**/ }
+    try { setStats((await api.get(`/families/${familyId}/stats`)).data); } catch { /**/ }
+  };
+  const refreshTransactions = async () => {
+    if (!familyId) return;
+    try {
+      const r = await api.get(`/families/${familyId}/transactions?skip=0&limit=${LIMIT}`);
+      setTransactions(r.data); setSkip(0); setHasMore(r.data.length >= LIMIT);
+    } catch { /**/ }
   };
 
   const loadMoreTransactions = async () => {
@@ -128,32 +135,16 @@ export default function App() {
     } catch { toast('Помилка завантаження', 'err'); }
   };
 
-  const sortTx = (list: Transaction[]) => [...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const onTxSaved = (tx: Transaction) => {
-    setTransactions(prev => sortTx([tx, ...prev.filter(t => t.id !== tx.id)]));
-    refreshStats();
-  };
-  const onTxDeleted = (id: number) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
-    refreshStats();
-  };
+  const sortTx = (list: Transaction[]) => [...list].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  const onTxSaved = (tx: Transaction) => { setTransactions(prev => sortTx([tx, ...prev.filter(t => t.id !== tx.id)])); refreshStats(); };
+  const onTxDeleted = (id: number) => { setTransactions(prev => prev.filter(t => t.id !== id)); refreshStats(); };
 
-  // Після категоризації в InboxModal:
-  //  1) оновлюємо основний список транзакцій (з сервера — там уже очищена назва),
-  //  2) оновлюємо статистику,
-  //  3) відкриваємо транзакцію в режимі редагування (щоб додати опис або виправити категорію).
+  // Після категоризації в Inbox: оновлюємо список і відкриваємо транзакцію для опису/виправлення.
   const handleCategorized = async (tx: Transaction) => {
     setIsInboxOpen(false);
-    // Ставимо оновлену транзакцію одразу (оптимістично), потім перевіряємо з сервера.
     setTransactions(prev => sortTx([tx, ...prev.filter(t => t.id !== tx.id)]));
     refreshStats();
-    if (!familyId) { setEditingTx(tx); return; }
-    try {
-      const r = await api.get(`/families/${familyId}/transactions?limit=100`);
-      setTransactions(r.data);
-      setHasMore(r.data.length >= LIMIT);
-    } catch { /* стан уже оновлено оптимістично */ }
-    // Відкриваємо деталі/редагування для зручності (додати опис / виправити випадковий тап).
+    refreshTransactions();
     setEditingTx(tx);
   };
 
@@ -163,8 +154,7 @@ export default function App() {
     try {
       await loadFamilyData(newFamilyId);
       setFamilies(prev => prev.map(f => ({ ...f, is_active: f.family_id === newFamilyId })));
-      const meRes = await api.get('/users/me/families'); // sync role for new family
-      const active = meRes.data.find((f: FamilyMembership) => f.family_id === newFamilyId);
+      const active = (await api.get('/users/me/families')).data.find((f: FamilyMembership) => f.family_id === newFamilyId);
       if (active && me) setMe({ ...me, role: active.role, current_active_family_id: newFamilyId });
     } catch { toast('Помилка завантаження сім\'ї', 'err'); }
     setLoading(false);
@@ -172,182 +162,107 @@ export default function App() {
 
   const handleMemberRoleChange = (userId: number, role: 'admin' | 'member') => {
     setFamilyUsers(prev => prev.map(u => u.id === userId ? { ...u, role } : u));
-    // Якщо змінюємо власну роль — оновлюємо me.role (для переключення адмін-кнопок).
     if (userId === me?.id && me) setMe({ ...me, role });
   };
 
   const handleLeaveFamily = async () => {
-    // Після виходу — перемикаємось на іншу сім'ю (або показуємо порожній стан).
     try {
-      const famRes = await api.get('/users/me/families');
-      const remaining = famRes.data;
+      const remaining = (await api.get('/users/me/families')).data;
       if (remaining.length > 0) {
         const next = remaining[0];
         await api.patch('/users/me/active-family', { family_id: next.family_id });
         await switchFamily(next.family_id);
         setFamilies(remaining.map((f: FamilyMembership) => ({ ...f, is_active: f.family_id === next.family_id })));
-      } else {
-        setMe(null);
-        setFamilyId(null);
-        setFamilyUsers([]);
-      }
-    } catch {
-      toast('Не вдалося перейти після виходу', 'err');
-      window.location.reload();
-    }
+      } else { setMe(null); setFamilyId(null); setFamilyUsers([]); }
+    } catch { toast('Не вдалося перейти після виходу', 'err'); window.location.reload(); }
   };
 
   const saveNote = async () => {
     if (!familyId) return;
     try {
-      if (notes.length > 0) {
-        await api.put(`/notes/${notes[0].id}`, { family_id: familyId, content: noteText });
-      } else if (noteText.trim()) {
-        const r = await api.post('/notes', { family_id: familyId, content: noteText });
-        setNotes([r.data]);
-      }
+      if (notes.length > 0) await api.put(`/notes/${notes[0].id}`, { family_id: familyId, content: noteText });
+      else if (noteText.trim()) setNotes([(await api.post('/notes', { family_id: familyId, content: noteText })).data]);
     } catch { /**/ }
   };
   const clearNote = () => {
-    if (!window.confirm('Очистити чернетку?')) return;
     setNoteText('');
     if (notes.length > 0 && familyId) api.put(`/notes/${notes[0].id}`, { family_id: familyId, content: '' });
-    triggerHaptic('success');
+    haptic('success');
   };
 
-  const onJarTopUp = async (updated: Jar, amount: number) => {
-    setJars(prev => prev.map(j => j.id === updated.id ? updated : j));
-    // Поповнення скарбнички = витрата з готівки (як і раніше)
-    if (familyId && me) {
-      try {
-        await api.post('/transactions', { family_id: familyId, user_id: me.id, category_id: categories.find(c => c.name.includes('Інше'))?.id || categories[0]?.id, amount, type: 'Витрати', title: `Поповнення банки: ${updated.name}`, account: 'Готівка', date: new Date().toISOString().split('T')[0] });
-        refreshStats();
-      } catch { /**/ }
-    }
-  };
+  // Скарбничка: бекенд сам створює jar-транзакцію (готівка ↔ скарбничка). Раніше тут
+  // додатково писалась «Витрата», і поповнення списувалось з готівки двічі.
+  const onJarTopUp = (updated: Jar) => { setJars(prev => prev.map(j => j.id === updated.id ? updated : j)); refreshStats(); };
 
-  if (authError) return <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f5f7fa', padding: '20px', textAlign: 'center' }}><span style={{ fontSize: '60px', marginBottom: '20px' }}>🛑</span><h2 style={{ color: '#e74c3c' }}>Доступ заборонено</h2><p style={{ color: '#7f8c8d' }}>{authError}</p></div>;
-  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f5f7fa' }}><h3 style={{ color: '#7f8c8d' }}>⏳ Завантаження...</h3></div>;
+  const openJars = () => { setMoreScreen(s => ({ screen: 'jars', key: s.key + 1 })); setActiveTab('more'); };
+  const accounts = ['Готівка', ...(bankBalances.find(b => b.user_id === me?.id)?.accounts.map(a => a.name) || [])];
+  const housingOff = housing?.profile?.mode === 'off';
+
+  if (authError) return <div className="screen-center"><div style={{ fontSize: 56 }}>🛑</div><h2 className="danger" style={{ margin: 0 }}>Доступ заборонено</h2><p className="muted">{authError}</p></div>;
+  if (loading) return <div className="screen-center"><Spinner label="Завантаження…" /></div>;
 
   return (
-    <div style={{ fontFamily: 'sans-serif', backgroundColor: '#f5f7fa', minHeight: '100vh', paddingBottom: '80px', position: 'relative' }}>
+    <div className="app">
       <ToastHost />
-      <div style={{ backgroundColor: '#fff', padding: '20px', borderBottomLeftRadius: '24px', borderBottomRightRadius: '24px', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <Avatar name={tgUser?.first_name || 'User'} url={tgUser?.photo_url} />
-          <div>
-            <h3 style={{ margin: 0, color: '#2c3e50', fontSize: '18px' }}>Привіт, {tgUser?.first_name || 'Гість'}! 👋</h3>
-            <p style={{ margin: 0, color: '#95a5a6', fontSize: '13px', marginTop: '2px' }}>{familyName || 'Твоя фінансова панель'}</p>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ padding: '20px' }}>
-        {activeTab === 'home' && (
-          <HomePage stats={stats} transactions={transactions} categories={categories} bankBalances={bankBalances}
-            onOpenInbox={() => setIsInboxOpen(true)} onSeeAll={() => setActiveTab('transactions')}
-            onAdd={() => setIsAddModalOpen(true)} onView={setViewingTx} />
-        )}
-
-        {activeTab === 'transactions' && <>
-          <h2 style={{ color: '#2c3e50', marginBottom: '15px', fontSize: '20px' }}>💸 Останні транзакції</h2>
-          <TransactionsPage transactions={transactions} categories={categories} hasMore={hasMore}
-            onLoadMore={loadMoreTransactions} onView={setViewingTx} onAdd={() => setIsAddModalOpen(true)} />
-        </>}
-
-        {activeTab === 'jars' && <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h2 style={{ color: '#2c3e50', margin: 0, fontSize: '20px' }}>🏦 Скарбнички</h2>
-            <button onClick={() => setIsJarModalOpen(true)} style={{ border: 'none', background: 'transparent', color: '#3498db', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>+ Створити</button>
-          </div>
-          {familyId && <JarsPage jars={jars} familyId={familyId} onTopUp={(id) => setTopupJar(jars.find(j => j.id === id) || null)} onCreate={() => setIsJarModalOpen(true)} />}
-        </>}
-
-        {activeTab === 'notes' && (
-          <NotesPage noteText={noteText} setNoteText={setNoteText} onBlur={saveNote} onClear={clearNote} splitBy={splitBy} setSplitBy={setSplitBy} />
-        )}
-
-        {activeTab === 'analytics' && stats && <AnalyticsPage stats={stats} />}
-        {activeTab === 'analytics' && !stats && (
-          <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: '#fff', borderRadius: '16px' }}>
-            <p style={{ color: '#7f8c8d' }}>Немає даних для аналітики.</p>
-          </div>
-        )}
-
-        {activeTab === 'settings' && me && familyId && (
-          <SettingsPage
-            me={{ id: me.id, name: me.name, role: me.role || 'member' }}
-            families={families} familyId={familyId} familyName={familyName} inviteCode={inviteCode}
-            familyUsers={familyUsers} hasMonoToken={me.has_mono_token}
-            onSwitchFamily={switchFamily}
-            onInviteRegenerated={setInviteCode}
-            onMemberRemoved={(uid) => setFamilyUsers(prev => prev.filter(u => u.id !== uid))}
-            onMemberRoleChange={handleMemberRoleChange}
-            onLeaveFamily={handleLeaveFamily}
-            onTokenSaved={() => setMe({ ...me, has_mono_token: true })}
-            copyToClipboard={copyToClipboard}
-          />
-        )}
-      </div>
-
-      {['home', 'transactions', 'jars'].includes(activeTab) && (
-        <div onClick={activeTab === 'jars' ? (() => setIsJarModalOpen(true)) : (() => setIsAddModalOpen(true))}
-          style={{ position: 'fixed', bottom: '90px', right: '20px', width: '60px', height: '60px', backgroundColor: '#3498db', color: '#fff', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '32px', boxShadow: '0 4px 15px rgba(52,152,219,0.4)', cursor: 'pointer', zIndex: 10 }}>+</div>
-      )}
-
-      <TabBar activeTab={activeTab} onTab={setActiveTab} />
-
-      {isJarModalOpen && familyId && (
-        <CreateJarModal familyId={familyId} onClose={() => setIsJarModalOpen(false)} onCreated={(j) => setJars(prev => [...prev, j])} />
-      )}
-      {topupJar && (
-        <TopUpJarModal jar={topupJar} onClose={() => setTopupJar(null)} onToppedUp={onJarTopUp} />
-      )}
-      {isInboxOpen && familyId && (
-        <InboxModal
-          familyId={familyId} categories={categories}
-          onClose={() => setIsInboxOpen(false)}
-          onCategorized={handleCategorized}
-        />
-      )}
-
-      {viewingTx && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          <div style={{ backgroundColor: '#fff', borderTopLeftRadius: '24px', borderTopRightRadius: '24px', padding: '25px', paddingBottom: 'calc(25px + env(safe-area-inset-bottom))' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, color: '#2c3e50' }}>Деталі транзакції</h3>
-              <button onClick={() => setViewingTx(null)} style={{ border: 'none', background: 'transparent', fontSize: '24px', color: '#95a5a6', cursor: 'pointer' }}>×</button>
-            </div>
-            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-              {viewingTx.type === 'Переказ' ? (
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#7f8c8d' }}>↔️ {fmtCur(viewingTx.amount, viewingTx.currency)}</div>
-              ) : (
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: viewingTx.type === 'Витрати' ? '#e74c3c' : '#27ae60' }}>{viewingTx.type === 'Витрати' ? '-' : '+'}{fmtCur(viewingTx.amount, viewingTx.currency)}</div>
-              )}
-              <div style={{ color: '#7f8c8d', marginTop: '5px' }}>{categories.find(c => c.id === viewingTx.category_id)?.name || 'Інше'}</div>
-            </div>
-            <div style={{ backgroundColor: '#f8f9fa', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
-              <p style={{ margin: '0 0 10px 0', color: '#2c3e50', fontSize: '15px', wordBreak: 'break-word' }}><b>Назва:</b> {viewingTx.title}</p>
-              {viewingTx.user_name && <p style={{ margin: '0 0 10px 0', color: '#7f8c8d', fontSize: '13px' }}>👤 <b>{viewingTx.user_name}</b></p>}
-              {viewingTx.note && <p style={{ margin: '0 0 10px 0', color: '#7f8c8d', fontSize: '13px', wordBreak: 'break-word' }}><b>Коментар:</b> {viewingTx.note}</p>}
-              <p style={{ margin: '0 0 5px 0', color: '#7f8c8d', fontSize: '13px' }}><b>Рахунок:</b> {viewingTx.account}</p>
-              <p style={{ margin: '0', color: '#7f8c8d', fontSize: '13px' }}><b>Дата:</b> {viewingTx.date}</p>
-            </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => copyToClipboard(`${viewingTx.title} - ${viewingTx.amount}₴`)} style={{ flex: 1, padding: '15px', backgroundColor: '#ecf0f1', color: '#34495e', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer' }}>📋 Копіювати</button>
-              <button onClick={() => { setEditingTx(viewingTx); setViewingTx(null); }} style={{ flex: 1, padding: '15px', backgroundColor: '#3498db', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '15px', cursor: 'pointer' }}>✏️ Редагувати</button>
-            </div>
+      {activeTab === 'home' && (
+        <div className="topbar">
+          <Avatar name={tgUser?.first_name || 'User'} url={tgUser?.photo_url} size={38} />
+          <div className="grow">
+            <div className="topbar__title">Привіт, {tgUser?.first_name || 'друже'}!</div>
+            <div className="topbar__sub">{familyName || 'Твоя фінансова панель'}</div>
           </div>
         </div>
       )}
 
-      {(isAddModalOpen || editingTx) && familyId && me && (
-        <TxModal
-          editingTx={editingTx} categories={categories} familyId={familyId} dbUserId={me.id}
-          accounts={['Готівка', ...(bankBalances.find(b => b.user_id === me.id)?.accounts.map(a => a.name) || [])]}
-          onClose={() => { setIsAddModalOpen(false); setEditingTx(null); }}
-          onSaved={onTxSaved} onDeleted={onTxDeleted} haptic={triggerHaptic}
-        />
+      {activeTab === 'home' && (
+        <HomePage stats={stats} transactions={transactions} categories={categories} bankBalances={bankBalances} jars={jars} housing={housing}
+          onOpenInbox={() => setIsInboxOpen(true)} onSeeAll={() => setActiveTab('transactions')}
+          onAdd={t => setAddType(t || 'Витрати')} onView={setViewingTx}
+          onHousing={() => setActiveTab('housing')} onReadings={() => { setHousingAction('readings'); setActiveTab('housing'); }}
+          onJar={setTopupJar} onJars={openJars} />
+      )}
+      {activeTab === 'transactions' && (
+        <TransactionsPage transactions={transactions} categories={categories} hasMore={hasMore}
+          onLoadMore={loadMoreTransactions} onView={setViewingTx} onAdd={() => setAddType('Витрати')} />
+      )}
+      {activeTab === 'housing' && familyId && (
+        <HousingPage familyId={familyId} overview={housing} setOverview={setHousing} accounts={accounts}
+          onFinanceChanged={() => { refreshTransactions(); refreshStats(); }}
+          action={housingAction} onActionDone={() => setHousingAction(null)} />
+      )}
+      {activeTab === 'analytics' && <AnalyticsPage stats={stats} />}
+      {activeTab === 'more' && me && familyId && (
+        <MorePage key={moreScreen.key} initialScreen={moreScreen.screen}
+          me={{ id: me.id, name: me.name, role: me.role || 'member' }}
+          families={families} familyId={familyId} familyName={familyName} inviteCode={inviteCode}
+          familyUsers={familyUsers} hasMonoToken={me.has_mono_token}
+          jars={jars} onJarTopUp={setTopupJar} onJarCreate={() => setIsJarModalOpen(true)}
+          noteText={noteText} setNoteText={setNoteText} onNoteBlur={saveNote} onNoteClear={clearNote}
+          splitBy={splitBy} setSplitBy={setSplitBy}
+          housingEnabled={!housingOff && !!housing?.profile}
+          onHousingSettings={() => { setHousingAction('settings'); setActiveTab('housing'); }}
+          onSwitchFamily={switchFamily} onInviteRegenerated={setInviteCode}
+          onMemberRemoved={uid => setFamilyUsers(prev => prev.filter(u => u.id !== uid))}
+          onMemberRoleChange={handleMemberRoleChange} onLeaveFamily={handleLeaveFamily}
+          onTokenSaved={() => setMe({ ...me, has_mono_token: true })} copyToClipboard={copyToClipboard} />
+      )}
+
+      {(activeTab === 'home' || activeTab === 'transactions') && (
+        <button className="fab" aria-label="Додати операцію" onClick={() => { haptic('medium'); setAddType('Витрати'); }}>+</button>
+      )}
+
+      <TabBar activeTab={activeTab} onTab={t => { setActiveTab(t); if (t === 'more') setMoreScreen(s => ({ screen: null, key: s.key + 1 })); }}
+        hidden={housingOff && activeTab !== 'housing' ? ['housing'] : []} />
+
+      {isJarModalOpen && familyId && <CreateJarModal familyId={familyId} onClose={() => setIsJarModalOpen(false)} onCreated={j => setJars(prev => [...prev, j])} />}
+      {topupJar && <TopUpJarModal jar={topupJar} onClose={() => setTopupJar(null)} onToppedUp={onJarTopUp} />}
+      {isInboxOpen && familyId && <InboxModal familyId={familyId} categories={categories} onClose={() => setIsInboxOpen(false)} onCategorized={handleCategorized} />}
+      {viewingTx && <TxDetailsSheet tx={viewingTx} categories={categories} onClose={() => setViewingTx(null)}
+        onEdit={() => { setEditingTx(viewingTx); setViewingTx(null); }} onCopy={copyToClipboard} />}
+      {(addType || editingTx) && familyId && me && (
+        <TxModal editingTx={editingTx} categories={categories} familyId={familyId} dbUserId={me.id} accounts={accounts}
+          initialType={addType || 'Витрати'}
+          onClose={() => { setAddType(null); setEditingTx(null); }} onSaved={onTxSaved} onDeleted={onTxDeleted} />
       )}
     </div>
   );

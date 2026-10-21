@@ -1,156 +1,121 @@
-import { Stats, Transaction, Category, BankUserBalances, fmtCur, sortCurrencies } from '../types';
-import TransactionCard from '../components/TransactionCard';
-import EmptyState from '../components/EmptyState';
+import { Stats, Transaction, Category, BankUserBalances, Jar, sortCurrencies } from '../types';
+import type { Overview } from '../housing/types';
+import { approx, inMonth, money, todayIso } from '../format';
+import { Banner, Card, Empty, Progress, Row, Section } from '../ui';
+import { TxList } from '../components/TransactionCard';
 
-const _num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function HomePage({
-  stats, transactions, categories, bankBalances, onOpenInbox, onSeeAll, onAdd, onView,
+  stats, transactions, categories, bankBalances, jars, housing,
+  onOpenInbox, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
 }: {
-  stats: Stats | null;
-  transactions: Transaction[];
-  categories: Category[];
-  bankBalances: BankUserBalances[];
-  onOpenInbox: () => void;
-  onSeeAll: () => void;
-  onAdd: () => void;
-  onView: (tx: Transaction) => void;
+  stats: Stats | null; transactions: Transaction[]; categories: Category[]; bankBalances: BankUserBalances[];
+  jars: Jar[]; housing: Overview | null;
+  onOpenInbox: () => void; onSeeAll: () => void; onAdd: (type?: 'Витрати' | 'Поповнення') => void;
+  onView: (tx: Transaction) => void; onHousing: () => void; onReadings: () => void; onJar: (j: Jar) => void; onJars: () => void;
 }) {
   const pending = stats?.pending_count || 0;
-  const recent = transactions.slice(0, 5);
-  const hasBank = bankBalances.length > 0;
-
-  // --- Місячні дохід/витрати по валютах ---
   const byCurrency = stats?.by_currency || {};
-  const currencyCodes = sortCurrencies(Object.keys(byCurrency));
-  // UAH завжди головна, якщо є; інакше перша за порядком.
-  const mainCur = currencyCodes[0] || 'UAH';
-  const mainStats = byCurrency[mainCur]
-    ? { income: _num(byCurrency[mainCur].income), expense: _num(byCurrency[mainCur].expense) }
-    : { income: _num(stats?.income), expense: _num(stats?.expense) };
-  const secondaryCurs = currencyCodes.filter(c => c !== mainCur);
+  const curs = sortCurrencies(Object.keys(byCurrency));
+  const main = curs[0] || 'UAH';
+  const m = byCurrency[main] ? { income: n(byCurrency[main].income), expense: n(byCurrency[main].expense) }
+    : { income: n(stats?.income), expense: n(stats?.expense) };
+  const housingOn = !!housing?.profile && housing.profile.mode !== 'off';
+  const hasMeters = housingOn && (housing?.meters.length || 0) > 0;
 
-  // --- Готівка: по (user, currency), групуємо по user_id ---
-  const cashUsers = stats?.cash_by_user || [];
-  const cashByUser: { user_id: number; user_name: string; byCur: Record<string, number> }[] = [];
-  const map = new Map<number, { user_name: string; byCur: Record<string, number> }>();
-  for (const u of cashUsers) {
-    const cur = u.currency || 'UAH';
-    const entry = map.get(u.user_id) || { user_name: u.user_name, byCur: {} };
-    entry.byCur[cur] = _num(entry.byCur[cur]) + _num(u.balance);
-    map.set(u.user_id, entry);
+  // Готівка: (user, currency) → групуємо по користувачу
+  const cash = new Map<number, { name: string; byCur: Record<string, number> }>();
+  for (const u of stats?.cash_by_user || []) {
+    const e = cash.get(u.user_id) || { name: u.user_name, byCur: {} };
+    const c = u.currency || 'UAH';
+    e.byCur[c] = n(e.byCur[c]) + n(u.balance);
+    cash.set(u.user_id, e);
   }
-  for (const [uid, entry] of map) cashByUser.push({ user_id: uid, ...entry });
-  cashByUser.sort((a, b) => a.user_name.localeCompare(b.user_name));
+  const fmtCurs = (byCur: Record<string, number>) => sortCurrencies(Object.keys(byCur)).map(c => money(byCur[c], c)).join(' · ');
 
-  const fmtByCur = (byCur: Record<string, number>) =>
-    sortCurrencies(Object.keys(byCur)).map(cur => fmtCur(byCur[cur], cur));
-
-  const statCard = (label: string, value: number, color: string, sign: string) => (
-    <div style={{ flex: 1, backgroundColor: '#fff', padding: '14px 12px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-      <p style={{ margin: 0, color: '#95a5a6', fontSize: '11px', fontWeight: '600', letterSpacing: '0.3px' }}>{label}</p>
-      <div style={{ color, fontWeight: '700', fontSize: '16px', marginTop: '4px', letterSpacing: '-0.2px' }}>{sign}{fmtCur(value, mainCur)}</div>
-    </div>
-  );
+  const actions = [
+    { icon: '➖', label: 'Витрата', onClick: () => onAdd('Витрати') },
+    { icon: '➕', label: 'Дохід', onClick: () => onAdd('Поповнення') },
+    { icon: '🧹', label: 'Розібрати', onClick: onOpenInbox, badge: pending },
+    hasMeters ? { icon: '📸', label: 'Показники', onClick: onReadings } : { icon: '🎯', label: 'Цілі', onClick: onJars },
+  ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-      {stats && (
-        <>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            {statCard('Дохід', mainStats.income, '#27ae60', '+')}
-            {statCard('Витрати', mainStats.expense, '#e74c3c', '-')}
-            {statCard('Залишок', (mainStats.income - mainStats.expense), '#2c3e50', '')}
-          </div>
-
-          {secondaryCurs.length > 0 && (
-            <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {secondaryCurs.map(cur => {
-                const v = byCurrency[cur] || { income: 0, expense: 0 };
-                return (
-                  <div key={cur} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12px', color: '#7f8c8d', fontWeight: '600' }}>{cur}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <span style={{ fontSize: '12px', color: '#27ae60', fontWeight: '600' }}>+{fmtCur(v.income, cur)}</span>
-                      <span style={{ fontSize: '12px', color: '#e74c3c', fontWeight: '600' }}>−{fmtCur(v.expense, cur)}</span>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>
-      )}
-
-      {cashByUser.length > 0 && (
-        <div style={{ backgroundColor: '#fff', padding: '14px 16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-            <span style={{ color: '#2c3e50', fontSize: '14px', fontWeight: '700' }}>💵 Готівка</span>
-            <span style={{ fontWeight: '600', fontSize: '13px', color: '#7f8c8d', textAlign: 'right' }}>
-              {fmtByCur(cashByUser.reduce((acc, u) => {
-                for (const [c, v] of Object.entries(u.byCur)) acc[c] = _num(acc[c]) + _num(v);
-                return acc;
-              }, {} as Record<string, number>)).join('  •  ')}
-            </span>
-          </div>
-          <div style={{ borderTop: '1px solid #f1f2f6', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            {cashByUser.map(u => (
-              <div key={u.user_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0' }}>
-                <span style={{ fontSize: '13px', color: '#34495e', fontWeight: '600' }}>👤 {u.user_name}</span>
-                <span style={{ fontSize: '12px', color: '#2c3e50', fontWeight: '600' }}>
-                  {fmtByCur(u.byCur).join('  •  ')}
-                </span>
-              </div>
-            ))}
-          </div>
+    <div className="page">
+      <Card className="hero">
+        <div className="hero__label">Витрати у {inMonth(todayIso())}</div>
+        <div className="hero__value tnum">{money(m.expense, main, 0)}</div>
+        <div className="hero__sub">
+          <span className="pos">+{money(m.income, main, 0)} дохід</span>
+          <span>залишок {money(m.income - m.expense, main, 0)}</span>
         </div>
-      )}
-
-      {hasBank && (
-        <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#2c3e50', marginBottom: '10px' }}>💳 Банки</div>
-          {bankBalances.map(u => (
-            <div key={u.user_id} style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: '4px' }}>👤 {u.user_name}</div>
-              {u.accounts.map((a, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
-                  <span style={{ fontSize: '13px', color: '#2c3e50' }}>{a.name}</span>
-                  <span style={{ fontWeight: 'bold', fontSize: '14px', color: a.balance >= 0 ? '#2c3e50' : '#e74c3c' }}>{fmtCur(a.balance, a.currency || 'UAH')}</span>
-                </div>
-              ))}
-            </div>
+        {curs.filter(c => c !== main).map(c => (
+          <div key={c} className="muted small" style={{ marginTop: 4 }}>
+            {c}: <span className="pos">+{money(byCurrency[c].income, c)}</span> · −{money(byCurrency[c].expense, c)}
+          </div>
+        ))}
+        <div className="actions" style={{ marginTop: 16 }}>
+          {actions.map(a => (
+            <button key={a.label} className="action" onClick={a.onClick}>
+              <span className="action__icon">{a.icon}{!!a.badge && <span className="action__badge">{a.badge > 99 ? '99+' : a.badge}</span>}</span>
+              {a.label}
+            </button>
           ))}
         </div>
-      )}
+      </Card>
 
       {pending > 0 && (
-        <div onClick={onOpenInbox} style={{ backgroundColor: '#fff8e1', border: '1px solid #f1c40f', padding: '16px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-          <div>
-            <div style={{ fontWeight: 'bold', color: '#2c3e50', fontSize: '15px' }}>🧹 Очікує розбору: {pending}</div>
-            <div style={{ color: '#7f8c8d', fontSize: '12px', marginTop: '2px' }}>Транзакції з Monobank без категорії</div>
+        <Banner icon="🧹" tone="warn" onClick={onOpenInbox}>
+          <b>{pending} операцій без категорії</b><div className="muted small">Розкладіть за хвилину — так аналітика буде точною</div>
+        </Banner>
+      )}
+
+      {(cash.size > 0 || bankBalances.length > 0) && (
+        <Section title="Рахунки">
+          <Card flush>
+            {[...cash.entries()].map(([uid, u]) => (
+              <Row key={`c${uid}`} icon="💵" title="Готівка" sub={u.name} end={<b>{fmtCurs(u.byCur)}</b>} />
+            ))}
+            {bankBalances.flatMap(u => u.accounts.map((a, i) => (
+              <Row key={`b${u.user_id}-${i}`} icon="💳" title={a.name} sub={u.user_name}
+                end={<b className={a.balance < 0 ? 'danger' : ''}>{money(a.balance, a.currency || 'UAH')}</b>} />
+            )))}
+          </Card>
+        </Section>
+      )}
+
+      {housingOn && housing && (
+        <Section title="Житло" action="Відкрити" onAction={onHousing}>
+          <Card flush>
+            <Row icon="🏡" iconAccent title={housing.totals.to_pay_now > 1 ? `До сплати ${approx(housing.totals.to_pay_now)}` : 'Все сплачено'}
+              sub={housing.alerts[0]?.text || (housing.power ? (housing.power.state === 'off' ? '🔴 Немає світла' : '🟢 Світло є') : 'Комуналка, оренда, лічильники')}
+              chevron onClick={onHousing} />
+          </Card>
+        </Section>
+      )}
+
+      {jars.length > 0 && (
+        <Section title="Цілі" action="Усі" onAction={onJars}>
+          <div className="chips--scroll" style={{ display: 'flex', gap: 8 }}>
+            {jars.map(j => (
+              <Card key={j.id} onClick={() => onJar(j)} className="" >
+                <div style={{ width: 150 }} className="stack-s">
+                  <div className="bold ellipsis">🎯 {j.name}</div>
+                  <div className="small tnum">{money(j.balance, j.currency, 0)} <span className="muted">/ {money(j.goal, j.currency, 0)}</span></div>
+                  <Progress value={j.goal ? (j.balance / j.goal) * 100 : 0} />
+                </div>
+              </Card>
+            ))}
           </div>
-          <div style={{ color: '#f39c12', fontWeight: 'bold', fontSize: '20px' }}>›</div>
-        </div>
+        </Section>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '5px' }}>
-        <h2 style={{ color: '#2c3e50', margin: 0, fontSize: '18px' }}>Останні операції</h2>
-        <button onClick={onSeeAll} style={{ border: 'none', background: 'transparent', color: '#3498db', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>Всі →</button>
-      </div>
-
-      {recent.length === 0 ? (
-        <EmptyState
-          emoji="💸"
-          title="Тут з'являться ваші операції"
-          subtitle="Додайте першу витрату або дохід — натисніть кнопку нижче, або напишіть боту «150 таксі»."
-          actionLabel="+ Додати транзакцію"
-          onAction={onAdd}
-        />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {recent.map(tx => <TransactionCard key={tx.id} tx={tx} categories={categories} onClick={() => onView(tx)} />)}
-        </div>
-      )}
+      <Section title="Останні операції" action="Усі" onAction={onSeeAll}>
+        {transactions.length === 0
+          ? <Empty icon="💸" title="Тут з'являться ваші операції" text="Додайте першу витрату або напишіть боту «150 таксі»." action="Додати" onAction={() => onAdd()} />
+          : <TxList transactions={transactions.slice(0, 6)} categories={categories} onView={onView} />}
+      </Section>
     </div>
   );
 }

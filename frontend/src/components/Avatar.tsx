@@ -1,8 +1,9 @@
 import { COLORS_AVATAR } from '../types';
 
-export default function Avatar({ name, url }: { name: string; url?: string }) {
-  if (url) return <img src={url} alt="avatar" style={{width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover'}}/>;
-  const initial = name && name.length > 0 ? name.charAt(0).toUpperCase() : '?';
-  const bgColor = COLORS_AVATAR[name ? name.length % COLORS_AVATAR.length : 0];
-  return <div style={{width: '40px', height: '40px', borderRadius: '50%', backgroundColor: bgColor, color: '#fff', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '18px'}}>{initial}</div>;
+export default function Avatar({ name, url, size = 40 }: { name: string; url?: string; size?: number }) {
+  const style = { width: size, height: size, fontSize: size * 0.42 };
+  if (url) return <img className="avatar" src={url} alt="" style={style} />;
+  const initial = name ? name.charAt(0).toUpperCase() : '?';
+  const bg = COLORS_AVATAR[name ? name.length % COLORS_AVATAR.length : 0];
+  return <div className="avatar" style={{ ...style, background: bg }}>{initial}</div>;
 }

@@ -2,67 +2,56 @@ import { useState } from 'react';
 import api from '../api';
 import { toast } from '../toast';
 import { Transaction, Category, CURRENCIES, cleanCatName } from '../types';
+import { parseNum, todayIso } from '../format';
+import { confirmAsync, haptic } from '../tg';
+import { Button, Chips, Field, Segmented, Sheet } from '../ui';
 
-const sheet: React.CSSProperties = {
-  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-  zIndex: 110, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-};
-const card: React.CSSProperties = {
-  backgroundColor: '#fff', borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
-  padding: '25px', paddingBottom: 'calc(25px + env(safe-area-inset-bottom))',
-  maxHeight: '90vh', overflowY: 'auto',
-};
-const input: React.CSSProperties = {
-  width: '100%', padding: '15px', borderRadius: '12px', border: '1px solid #dfe6e9',
-  fontSize: '16px', boxSizing: 'border-box',
-};
-const closeBtn: React.CSSProperties = { border: 'none', background: 'transparent', fontSize: '24px', color: '#95a5a6', cursor: 'pointer' };
+type TxType = 'Витрати' | 'Поповнення';
 
 // Додавання/редагування транзакції. editingTx == null → режим створення.
 export default function TxModal({
-  editingTx, categories, familyId, dbUserId, accounts, onClose, onSaved, onDeleted, haptic,
+  editingTx, categories, familyId, dbUserId, accounts, onClose, onSaved, onDeleted, initialType = 'Витрати',
 }: {
   editingTx: Transaction | null;
   categories: Category[];
   familyId: number;
   dbUserId: number;
-  accounts: string[]; // доступні рахунки: "Готівка" + підключені банки
+  accounts: string[]; // «Готівка» + підключені банки
   onClose: () => void;
   onSaved: (tx: Transaction) => void;
   onDeleted: (id: number) => void;
-  haptic: (s: 'light' | 'medium' | 'heavy' | 'success') => void;
+  initialType?: TxType;
 }) {
-  const [txType, setTxType] = useState<'Витрати' | 'Поповнення'>((editingTx?.type as any) || 'Витрати');
-  const [txAmount, setTxAmount] = useState(editingTx ? String(editingTx.amount) : '');
-  const [txTitle, setTxTitle] = useState(editingTx?.title || '');
-  const [txDate, setTxDate] = useState(editingTx?.date || new Date().toISOString().split('T')[0]);
-  const [txCategoryId, setTxCategoryId] = useState<number | null>(editingTx?.category_id || null);
-  const [txNote, setTxNote] = useState(editingTx?.note || '');
-  const [txAccount, setTxAccount] = useState<string>(
-    editingTx?.account || (accounts.includes('Готівка') ? 'Готівка' : accounts[0] || 'Готівка'),
-  );
-  const [txCurrency, setTxCurrency] = useState<string>(editingTx?.currency || 'UAH');
+  const [txType, setTxType] = useState<TxType>((editingTx?.type as TxType) || initialType);
+  const [amount, setAmount] = useState(editingTx ? String(editingTx.amount) : '');
+  const [title, setTitle] = useState(editingTx?.title || '');
+  const [date, setDate] = useState(editingTx?.date || todayIso());
+  const [categoryId, setCategoryId] = useState<number | null>(editingTx?.category_id || null);
+  const [note, setNote] = useState(editingTx?.note || '');
+  const [account, setAccount] = useState<string>(editingTx?.account || (accounts.includes('Готівка') ? 'Готівка' : accounts[0] || 'Готівка'));
+  const [currency, setCurrency] = useState<string>(editingTx?.currency || 'UAH');
+  const [more, setMore] = useState(!!(editingTx && (editingTx.note || editingTx.currency !== 'UAH')));
   const [busy, setBusy] = useState(false);
 
   const filtered = categories.filter(c => c.type === (txType === 'Витрати' ? 'expense' : 'income') && !c.name.includes('Очікує'));
-  const amountNum = parseFloat(txAmount.replace(',', '.'));
-  const valid = !isNaN(amountNum) && amountNum > 0 && txCategoryId !== null && (txTitle.trim() || txCategoryId);
+  const amountNum = parseNum(amount);
+  const valid = Number.isFinite(amountNum) && amountNum > 0 && categoryId !== null;
 
   const save = async () => {
     if (!valid || busy) return;
     setBusy(true);
     const payload = {
-      amount: amountNum, type: txType, category_id: txCategoryId,
-      title: txTitle.trim() || cleanCatName(categories.find(c => c.id === txCategoryId)?.name),
-      date: txDate, note: txNote.trim(), currency: txCurrency,
+      amount: amountNum, type: txType, category_id: categoryId,
+      title: title.trim() || cleanCatName(categories.find(c => c.id === categoryId)?.name),
+      date, note: note.trim(), currency,
     };
     try {
       const r = editingTx
-        ? await api.put(`/transactions/${editingTx.id}`, { ...payload, account: txAccount })
-        : await api.post('/transactions', { ...payload, family_id: familyId, user_id: dbUserId, account: txAccount });
+        ? await api.put(`/transactions/${editingTx.id}`, { ...payload, account })
+        : await api.post('/transactions', { ...payload, family_id: familyId, user_id: dbUserId, account });
       onSaved(r.data);
       haptic('success');
-      toast(editingTx ? '✅ Оновлено' : '✅ Записано');
+      toast(editingTx ? 'Оновлено' : 'Записано');
       onClose();
     } catch {
       toast('Помилка збереження', 'err');
@@ -71,13 +60,13 @@ export default function TxModal({
   };
 
   const remove = async () => {
-    if (!editingTx || busy || !window.confirm('Видалити транзакцію?')) return;
+    if (!editingTx || busy || !(await confirmAsync('Видалити транзакцію?'))) return;
     setBusy(true);
     try {
       await api.delete(`/transactions/${editingTx.id}`);
       onDeleted(editingTx.id);
       haptic('success');
-      toast('🗑 Видалено');
+      toast('Видалено');
       onClose();
     } catch {
       toast('Помилка видалення', 'err');
@@ -86,79 +75,47 @@ export default function TxModal({
   };
 
   return (
-    <div style={sheet}>
-      <div style={card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h3 style={{ margin: 0, color: '#2c3e50' }}>{editingTx ? 'Редагування' : 'Нова транзакція'}</h3>
-          <button onClick={onClose} style={closeBtn}>×</button>
-        </div>
+    <Sheet title={editingTx ? 'Редагування' : 'Нова операція'} onClose={onClose}
+      footer={<>
+        <Button onClick={save} disabled={!valid} busy={busy}>{editingTx ? 'Зберегти' : 'Записати'}</Button>
+        {editingTx && <Button variant="danger" onClick={remove} disabled={busy}>Видалити</Button>}
+      </>}>
+      <Segmented value={txType} onChange={t => { setTxType(t); setCategoryId(null); }}
+        options={[{ value: 'Витрати', label: 'Витрата' }, { value: 'Поповнення', label: 'Дохід' }]} />
 
-        <div style={{ display: 'flex', backgroundColor: '#f1f2f6', borderRadius: '12px', padding: '4px', marginBottom: '15px' }}>
-          {(['Витрати', 'Поповнення'] as const).map(t => (
-            <div key={t} onClick={() => { setTxType(t); setTxCategoryId(null); }}
-              style={{ flex: 1, textAlign: 'center', padding: '10px', borderRadius: '10px', cursor: 'pointer', backgroundColor: txType === t ? '#fff' : 'transparent', fontWeight: txType === t ? 'bold' : 'normal', color: txType === t ? (t === 'Витрати' ? '#e74c3c' : '#27ae60') : '#7f8c8d', boxShadow: txType === t ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>
-              {t === 'Витрати' ? 'Витрата' : 'Дохід'}
-            </div>
-          ))}
-        </div>
+      <input className="input input--big tnum" inputMode="decimal" placeholder="0 ₴" value={amount}
+        autoFocus={!editingTx} onChange={e => setAmount(e.target.value)} aria-label="Сума" />
 
-        <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-          <input inputMode="decimal" placeholder="Сума" value={txAmount} autoFocus={!editingTx}
-            onChange={e => setTxAmount(e.target.value)}
-            style={{ ...input, flex: 2, fontSize: '20px', fontWeight: 'bold' }} />
-          <input type="date" value={txDate} onChange={e => setTxDate(e.target.value)}
-            style={{ ...input, flex: 1, backgroundColor: '#fff' }} />
+      <Field label="Категорія">
+        <div style={{ maxHeight: 176, overflowY: 'auto' }}>
+          <Chips value={categoryId} onChange={setCategoryId} options={filtered.map(c => ({ value: c.id, label: c.name }))} />
         </div>
+      </Field>
 
-        <div style={{ marginBottom: '15px' }}>
-          <div style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: '6px' }}>Рахунок</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {accounts.map(acc => (
-              <button key={acc} onClick={() => { setTxAccount(acc); haptic('light'); }}
-                style={{ padding: '9px 14px', borderRadius: '20px', border: txAccount === acc ? '2px solid #3498db' : '1px solid #dfe6e9', backgroundColor: txAccount === acc ? '#ebf5fb' : '#f8f9fa', fontSize: '13px', cursor: 'pointer', color: '#2c3e50', fontWeight: txAccount === acc ? 'bold' : 'normal' }}>
-                {acc === 'Готівка' ? '💵 Готівка' : `💳 ${acc}`}
-              </button>
-            ))}
+      <input className="input" placeholder="Що купили? (необов'язково)" value={title} onChange={e => setTitle(e.target.value)} />
+
+      {accounts.length > 1 && (
+        <Field label="Рахунок">
+          <Chips value={account} onChange={setAccount} small
+            options={accounts.map(a => ({ value: a, label: a === 'Готівка' ? '💵 Готівка' : `💳 ${a}` }))} />
+        </Field>
+      )}
+
+      {more ? (
+        <>
+          <div className="grid2">
+            <Field label="Дата"><input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
+            <Field label="Валюта">
+              <Chips value={currency} onChange={setCurrency} small options={CURRENCIES.map(c => ({ value: c, label: c }))} />
+            </Field>
           </div>
-        </div>
-
-        <div style={{ marginBottom: '15px' }}>
-          <div style={{ fontSize: '12px', color: '#7f8c8d', marginBottom: '6px' }}>Валюта</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {CURRENCIES.map(cur => (
-              <button key={cur} onClick={() => { setTxCurrency(cur); haptic('light'); }}
-                style={{ padding: '9px 14px', borderRadius: '20px', border: txCurrency === cur ? '2px solid #3498db' : '1px solid #dfe6e9', backgroundColor: txCurrency === cur ? '#ebf5fb' : '#f8f9fa', fontSize: '13px', cursor: 'pointer', color: '#2c3e50', fontWeight: txCurrency === cur ? 'bold' : 'normal' }}>
-                {cur}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <input type="text" placeholder="Що купили? (необов'язково)" value={txTitle} onChange={e => setTxTitle(e.target.value)}
-          style={{ ...input, marginBottom: '10px' }} />
-        <input type="text" placeholder="Опис / коментар (необов'язково)" value={txNote} onChange={e => setTxNote(e.target.value)}
-          style={{ ...input, marginBottom: '15px' }} />
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '20px', maxHeight: '180px', overflowY: 'auto' }}>
-          {filtered.map(c => (
-            <button key={c.id} onClick={() => { setTxCategoryId(c.id); haptic('light'); }}
-              style={{ padding: '10px 14px', borderRadius: '20px', border: txCategoryId === c.id ? '2px solid #3498db' : '1px solid #dfe6e9', backgroundColor: txCategoryId === c.id ? '#ebf5fb' : '#f8f9fa', fontSize: '14px', cursor: 'pointer', color: '#2c3e50', fontWeight: txCategoryId === c.id ? 'bold' : 'normal' }}>
-              {c.name}
-            </button>
-          ))}
-        </div>
-
-        <button onClick={save} disabled={!valid || busy}
-          style={{ width: '100%', padding: '15px', backgroundColor: valid ? '#3498db' : '#bdc3c7', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '16px', marginBottom: editingTx ? '10px' : '0', cursor: valid ? 'pointer' : 'default' }}>
-          {busy ? '⏳ Зберігаю...' : 'Зберегти'}
+          <input className="input" placeholder="Коментар" value={note} onChange={e => setNote(e.target.value)} />
+        </>
+      ) : (
+        <button className="link" style={{ alignSelf: 'flex-start' }} onClick={() => setMore(true)}>
+          Дата {date !== todayIso() ? `(${date})` : 'сьогодні'} · валюта · коментар ›
         </button>
-        {editingTx && (
-          <button onClick={remove} disabled={busy}
-            style={{ width: '100%', padding: '15px', backgroundColor: '#fff', color: '#e74c3c', border: '1px solid #e74c3c', borderRadius: '12px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
-            Видалити транзакцію
-          </button>
-        )}
-      </div>
-    </div>
+      )}
+    </Sheet>
   );
 }
