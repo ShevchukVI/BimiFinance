@@ -1,18 +1,19 @@
 import { Stats, Transaction, Category, BankUserBalances, Jar, sortCurrencies } from '../types';
 import type { Overview } from '../housing/types';
-import { approx, inMonth, money, todayIso } from '../format';
-import { Banner, Card, Empty, Progress, Row, Section } from '../ui';
+import type { Upcoming } from '../payments/api';
+import { approx, day, inMonth, money, todayIso } from '../format';
+import { Badge, Banner, Card, Empty, Progress, Row, Section } from '../ui';
 import { TxList } from '../components/TransactionCard';
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function HomePage({
-  stats, transactions, categories, bankBalances, jars, housing,
-  onOpenInbox, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
+  stats, transactions, categories, bankBalances, jars, housing, upcoming,
+  onOpenInbox, onUpcoming, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
 }: {
   stats: Stats | null; transactions: Transaction[]; categories: Category[]; bankBalances: BankUserBalances[];
-  jars: Jar[]; housing: Overview | null;
-  onOpenInbox: () => void; onSeeAll: () => void; onAdd: (type?: 'Витрати' | 'Поповнення') => void;
+  jars: Jar[]; housing: Overview | null; upcoming: Upcoming[];
+  onOpenInbox: () => void; onUpcoming: (u: Upcoming | null) => void; onSeeAll: () => void; onAdd: (type?: 'Витрати' | 'Поповнення') => void;
   onView: (tx: Transaction) => void; onHousing: () => void; onReadings: () => void; onJar: (j: Jar) => void; onJars: () => void;
 }) {
   const pending = stats?.pending_count || 0;
@@ -81,6 +82,19 @@ export default function HomePage({
               <Row key={`b${u.user_id}-${i}`} icon="💳" title={a.name} sub={u.user_name}
                 end={<b className={a.balance < 0 ? 'danger' : ''}>{money(a.balance, a.currency || 'UAH')}</b>} />
             )))}
+          </Card>
+        </Section>
+      )}
+
+      {upcoming.length > 0 && (
+        <Section title="Найближчі платежі" action="Усі" onAction={() => onUpcoming(null)}>
+          <Card flush>
+            {upcoming.slice(0, 5).map(u => {
+              const days = Math.round((new Date(`${u.date}T12:00:00`).getTime() - new Date(`${todayIso()}T12:00:00`).getTime()) / 86400000);
+              const when = days < 0 ? <Badge tone="danger">прострочено</Badge> : days === 0 ? <Badge tone="warn">сьогодні</Badge> : days === 1 ? <Badge tone="warn">завтра</Badge> : null;
+              return <Row key={`${u.kind}${u.id}${u.date}`} icon={u.icon} title={u.title} sub={<>{day(u.date)} · {u.sub}</>}
+                end={<span className="stack-s" style={{ gap: 2, alignItems: 'flex-end' }}><b>{money(u.amount, u.currency, 0)}</b>{when}</span>} onClick={() => onUpcoming(u)} />;
+            })}
           </Card>
         </Section>
       )}

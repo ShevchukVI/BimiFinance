@@ -6,7 +6,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       // vendor chunks change rarely → cached by Telegram WebView between releases
-      output: { manualChunks: { react: ['react', 'react-dom'], charts: ['recharts'] } },
+      output: { manualChunks: { charts: ['recharts'] } },
     },
   },
   server: {

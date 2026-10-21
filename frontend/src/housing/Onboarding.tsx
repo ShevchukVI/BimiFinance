@@ -22,6 +22,7 @@ export default function Onboarding({ familyId, onDone }: { familyId: number; onD
   const [rent, setRent] = useState('');
   const [rentDay, setRentDay] = useState('1');
   const [busy, setBusy] = useState(false);
+  const [channel, setChannel] = useState('');
 
   useEffect(() => { housingApi.templates().then(setTemplates).catch(() => { /**/ }); }, []);
 
@@ -30,7 +31,9 @@ export default function Onboarding({ familyId, onDone }: { familyId: number; onD
     try {
       const body: Record<string, unknown> = { mode: m, templates: m === 'off' ? [] : picked.filter(k => k !== 'rent' && k !== 'mortgage') };
       if ((m === 'rent' || m === 'mortgage') && parseNum(rent) > 0) { body.rent_amount = parseNum(rent); body.rent_day = Number(rentDay) || 1; }
+      if (channel.trim()) body.svitlobot_channel = channel.trim();
       const o = await housingApi.setup(familyId, body);
+      if (channel.trim()) housingApi.syncOutages(familyId).catch(() => { /* backfill later by the bot */ });
       haptic('success');
       toast(m === 'off' ? 'Вкладку можна увімкнути в «Ще»' : 'Готово! Внесіть перші показники');
       onDone(o);
@@ -68,6 +71,9 @@ export default function Onboarding({ familyId, onDone }: { familyId: number; onD
           <Field label="Платимо до (число)"><input className="input tnum" inputMode="numeric" value={rentDay} onChange={e => setRentDay(e.target.value.replace(/\D/g, '').slice(0, 2))} /></Field>
         </div>
       )}
+      <Field label="Світлобот (необов'язково)" hint="Посилання на канал вашого світлобота — Bimi вестиме історію відключень.">
+        <input className="input" placeholder="t.me/svitlobot_…" value={channel} onChange={e => setChannel(e.target.value)} />
+      </Field>
       <div className="btn-row">
         <Button variant="secondary" onClick={() => setStep(1)}>Назад</Button>
         <Button onClick={() => submit()} busy={busy}>Готово</Button>

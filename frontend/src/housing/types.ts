@@ -21,11 +21,11 @@ export interface ProviderBalance {
 export interface Provider {
   id: number; name: string; service: string; icon: string; billing: Billing; fixed_amount: number | null;
   due_day: number | null; account_number: string; pay_url: string; start_date: string | null;
-  opening_balance: number; note: string; is_active: boolean; sort_order: number;
+  opening_balance: number; note: string; match_pattern: string; is_active: boolean; sort_order: number;
 }
 
 export interface ProviderOverview extends Provider {
-  balance: ProviderBalance; meter_ids: number[]; bills_count: number; warnings: number;
+  balance: ProviderBalance; meter_ids: number[]; bills_count: number; warnings: number; suggested: number;
 }
 
 export interface MeterSummary {
@@ -37,7 +37,7 @@ export interface MeterSummary {
   last_year_month: number | null; heating_on: boolean;
 }
 
-export interface HousingAlert { level: 'warn' | 'info'; kind: 'readings' | 'pay' | 'bill'; text: string; provider_id?: number; }
+export interface HousingAlert { level: 'warn' | 'info'; kind: 'readings' | 'pay' | 'bill' | 'heating' | 'link'; text: string; provider_id?: number; }
 
 export interface PowerSummary {
   channel: string; state: 'on' | 'off' | null; since: string | null; month_off_hours: number; month_outages: number;

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from '../toast';
-import { dmy, hm } from '../format';
+import { day, dmy, hm } from '../format';
 import { haptic } from '../tg';
 import { Button, Card, Chips, Field, Row, Section, Segmented, Sheet, Switch } from '../ui';
 import { errText, housingApi } from './api';
@@ -26,10 +26,12 @@ export default function SettingsSheet({ familyId, overview, onClose, onChanged, 
   const [channel, setChannel] = useState(pr.svitlobot_channel || '');
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [heatOn, setHeatOn] = useState(overview.heating.on);
 
   const save = async () => {
     setBusy(true);
     try {
+      if (heatOn !== overview.heating.on) await housingApi.heating(familyId, heatOn);
       await housingApi.profile(familyId, {
         mode, title: title.trim(), area_m2: parseFloat(area.replace(',', '.')) || null, heating,
         readings_day: Math.min(Math.max(Number(readingsDay) || 1, 1), 28), reminders_enabled: reminders, svitlobot_channel: channel.trim() || null,
@@ -46,6 +48,7 @@ export default function SettingsSheet({ familyId, overview, onClose, onChanged, 
     setSyncing(true);
     try {
       if (channel.trim() !== (pr.svitlobot_channel || '')) await housingApi.profile(familyId, { svitlobot_channel: channel.trim() || null });
+      if (!channel.trim()) { setSyncing(false); return; }
       const r = await housingApi.syncOutages(familyId);
       toast(r.skipped ? 'Щойно оновлено' : `Оновлено: ${r.events} подій`);
       onChanged();
@@ -63,6 +66,16 @@ export default function SettingsSheet({ familyId, overview, onClose, onChanged, 
         <Field label="Площа, м²"><input className="input tnum" inputMode="decimal" value={area} onChange={e => setArea(e.target.value)} /></Field>
       </div>
       <Field label="Опалення"><Chips small value={heating} onChange={setHeating} options={HEATING} /></Field>
+
+      <Section title="Опалювальний сезон">
+        <Card>
+          <div className="spread">
+            <div><div className="bold">{heatOn ? `Гріємо${overview.heating.since ? ` з ${day(overview.heating.since)}` : ''}` : 'Не гріємо'}</div>
+              <div className="muted small">Будь-який обігрів: електробатареї, обігрівачі, котел. Позначається двічі на рік — прогнози й графіки рахують зиму окремо. Якщо забудете, Bimi підкаже, коли споживання підскочить.</div></div>
+            <Switch on={heatOn} onChange={setHeatOn} label="Опалювальний сезон" />
+          </div>
+        </Card>
+      </Section>
 
       <Section title="Послуги" action="+ Додати" onAction={onAddProvider}>
         <Card flush>
@@ -89,7 +102,8 @@ export default function SettingsSheet({ familyId, overview, onClose, onChanged, 
       <Section title="Світло (світлобот)">
         <Card>
           <div className="stack-s">
-            <Field hint="Публічний Telegram-канал вашого світлобота — історія відключень підтягується автоматично">
+            <div className="muted small">Якщо у вас є світлобот (бот пінгує роутер і пише в канал «Світло зникло / з'явилося»), Bimi покаже статус світла, години без світла по днях і місяцях, і порахує споживання на годину, коли світло було — так видно реальне навантаження обігрівачів.</div>
+            <Field hint="Посилання на публічний канал вашого світлобота. Кожна сім'я додає свій.">
               <input className="input" placeholder="t.me/svitlobot_…" value={channel} onChange={e => setChannel(e.target.value)} />
             </Field>
             {overview.power?.synced_at && <div className="muted xsmall">Оновлено {dmy(overview.power.synced_at)} {hm(overview.power.synced_at)}</div>}

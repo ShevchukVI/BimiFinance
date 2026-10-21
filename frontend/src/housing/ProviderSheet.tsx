@@ -7,9 +7,9 @@ import { errText, housingApi } from './api';
 import type { Bill, MeterSummary, Payment, ProviderOverview } from './types';
 import { isFixedService, SERVICE_LABELS } from './types';
 
-export default function ProviderSheet({ familyId, provider: p, meters, onClose, onPay, onBill, onEdit, onChanged }: {
+export default function ProviderSheet({ familyId, provider: p, meters, onClose, onPay, onBill, onEdit, onChanged, onLoose }: {
   familyId: number; provider: ProviderOverview; meters: MeterSummary[]; onClose: () => void; onPay: () => void;
-  onBill: (b?: Bill, period?: string) => void; onEdit: () => void; onChanged: () => void;
+  onBill: (b?: Bill, period?: string) => void; onEdit: () => void; onChanged: () => void; onLoose: () => void;
 }) {
   const [bills, setBills] = useState<Bill[] | null>(null);
   const [payments, setPayments] = useState<Payment[] | null>(null);
@@ -57,6 +57,7 @@ export default function ProviderSheet({ familyId, provider: p, meters, onClose, 
           <Tile label="Наступна платіжка" value={b.next_bill_forecast ? approx(b.next_bill_forecast) : '—'} />
         </div>
       )}
+      {p.suggested > 0 && <Banner icon="🔗" onClick={onLoose}><b>{p.suggested} {p.suggested === 1 ? 'операція схожа' : 'операції схожі'} на оплату {p.name}</b><div className="muted small">Натисніть, щоб зарахувати</div></Banner>}
       {b.debt < -1 && !fixed && <Banner icon="💚">Переплата {money(-b.debt)} — наступна платіжка буде меншою.</Banner>}
 
       {fixed && b.history && b.history.length > 0 && (

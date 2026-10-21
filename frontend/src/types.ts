@@ -1,4 +1,4 @@
-export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; user_name?: string | null; currency?: string; jar_id?: number | null; }
+export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; user_name?: string | null; currency?: string; jar_id?: number | null; obligation_id?: number | null; }
 export interface Category { id: number; name: string; icon: string; type: string; }
 export interface CashUserBalance { user_id: number; user_name: string; balance: number; currency?: string; }
 export interface Stats { income: number; expense: number; balance: number; top_categories: { name: string; amount: number }[]; pending_count: number; balances: Record<string, number>; cash_by_user?: CashUserBalance[]; by_currency?: Record<string, { income: number; expense: number }>; cash_by_currency?: { currency: string; balance: number }[]; }

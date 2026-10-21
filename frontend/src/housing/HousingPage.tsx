@@ -1,7 +1,7 @@
 import { Fragment, ReactNode, useEffect, useState } from 'react';
 import { toast } from '../toast';
 import { approx, day, hm, hoursText, money, monthYear, plural } from '../format';
-import { Badge, Banner, Button, Card, Empty, Row, Section, Segmented, Spinner, Switch } from '../ui';
+import { Badge, Banner, Button, Card, Empty, Row, Section, Segmented, Spinner } from '../ui';
 import { errText, housingApi } from './api';
 import type { Bill, HousingAlert, MeterSummary, Overview, Payment, ProviderOverview } from './types';
 import { isFixedService } from './types';
@@ -13,6 +13,8 @@ import ProviderSheet from './ProviderSheet';
 import ProviderForm from './ProviderForm';
 import SettingsSheet from './SettingsSheet';
 import MeterSheet from './MeterSheet';
+import LooseSheet from './LooseSheet';
+import { confirmAsync } from '../tg';
 import StatsView from './StatsView';
 
 type Seg = 'overview' | 'meters' | 'bills' | 'stats';
@@ -48,7 +50,7 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
   const [sheet, setSheet] = useState<
     | { kind: 'readings' } | { kind: 'settings' } | { kind: 'bill'; providerId?: number; bill?: Bill; period?: string }
     | { kind: 'pay'; providerId?: number } | { kind: 'provider'; id: number } | { kind: 'providerForm'; id?: number }
-    | { kind: 'meter'; id: number } | null>(null);
+    | { kind: 'meter'; id: number } | { kind: 'loose'; providerId?: number } | null>(null);
   const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [bills, setBills] = useState<Bill[] | null>(null);
   const [payments, setPayments] = useState<Payment[] | null>(null);
@@ -85,8 +87,15 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
   const providers = o.providers;
   const hasMeters = o.meters.length > 0;
   const alerts = showAllAlerts ? o.alerts : o.alerts.slice(0, 3);
-  const onAlert = (a: HousingAlert) => {
-    if (a.kind === 'readings') setSheet({ kind: 'readings' });
+  const onAlert = async (a: HousingAlert) => {
+    if (a.kind === 'heating') {
+      const on = !o.heating.on;
+      if (!(await confirmAsync(on ? 'Позначити початок опалювального сезону з сьогодні? Прогнози рахуватимуть зимове споживання.' : 'Завершити опалювальний сезон сьогодні?'))) return;
+      try { await housingApi.heating(familyId, on); toast(on ? 'Опалювальний сезон позначено' : 'Сезон завершено'); changed(); } catch (e) { toast(errText(e), 'err'); }
+      return;
+    }
+    if (a.kind === 'link') setSheet({ kind: 'loose' });
+    else if (a.kind === 'readings') setSheet({ kind: 'readings' });
     else if (a.kind === 'pay' && a.provider_id) setSheet({ kind: 'pay', providerId: a.provider_id });
     else if (a.provider_id) setSheet({ kind: 'provider', id: a.provider_id });
     else setSheet({ kind: 'bill' });
@@ -123,7 +132,7 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
       {o.alerts.length > 0 && (
         <div className="stack-s">
           {alerts.map((a, i) => (
-            <Banner key={i} tone={a.level === 'warn' ? 'warn' : undefined} icon={a.kind === 'readings' ? '📸' : a.kind === 'pay' ? '💳' : a.level === 'warn' ? '⚠️' : '🧾'} onClick={() => onAlert(a)}>
+            <Banner key={i} tone={a.level === 'warn' ? 'warn' : undefined} icon={({ readings: '📸', pay: '💳', heating: '♨️', link: '🔗' } as Record<string, string>)[a.kind] || (a.level === 'warn' ? '⚠️' : '🧾')} onClick={() => onAlert(a)}>
               {a.text}
             </Banner>
           ))}
@@ -136,8 +145,8 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
         { value: 'bills', label: 'Платіжки' }, { value: 'stats', label: 'Статистика' },
       ]} />
 
-      {seg === 'overview' && <OverviewSeg o={o} familyId={familyId} onProvider={id => setSheet({ kind: 'provider', id })}
-        onAddProvider={() => setSheet({ kind: 'providerForm' })} onStats={() => setSeg('stats')} onChanged={changed} />}
+      {seg === 'overview' && <OverviewSeg o={o} onProvider={id => setSheet({ kind: 'provider', id })}
+        onAddProvider={() => setSheet({ kind: 'providerForm' })} onStats={() => setSeg('stats')} />}
       {seg === 'meters' && <MetersSeg meters={o.meters} onReadings={() => setSheet({ kind: 'readings' })} onMeter={id => setSheet({ kind: 'meter', id })} />}
       {seg === 'bills' && <BillsSeg o={o} bills={bills} payments={payments} onBill={b => setSheet({ kind: 'bill', bill: b, providerId: b.provider_id })}
         onAdd={() => setSheet({ kind: 'bill' })} onPay={() => setSheet({ kind: 'pay' })} onProvider={id => setSheet({ kind: 'provider', id })} />}
@@ -153,12 +162,14 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
         return p ? <ProviderSheet familyId={familyId} provider={p} meters={o.meters.filter(m => m.provider_id === p.id)}
           onClose={() => setSheet(null)} onPay={() => setSheet({ kind: 'pay', providerId: p.id })}
           onBill={(b, period) => setSheet({ kind: 'bill', providerId: p.id, bill: b, period })}
-          onEdit={() => setSheet({ kind: 'providerForm', id: p.id })} onChanged={() => changed()} /> : null;
+          onEdit={() => setSheet({ kind: 'providerForm', id: p.id })} onChanged={() => changed()}
+          onLoose={() => setSheet({ kind: 'loose', providerId: p.id })} /> : null;
       })()}
       {sheet?.kind === 'providerForm' && <ProviderForm familyId={familyId} provider={providers.find(p => p.id === sheet.id)}
         meters={o.meters.filter(m => m.provider_id === sheet.id)} onClose={() => setSheet(null)} onSaved={() => { setSheet(null); changed(); }} />}
       {sheet?.kind === 'settings' && <SettingsSheet familyId={familyId} overview={o} onClose={() => setSheet(null)}
         onChanged={() => changed()} onEditProvider={id => setSheet({ kind: 'providerForm', id })} onAddProvider={() => setSheet({ kind: 'providerForm' })} />}
+      {sheet?.kind === 'loose' && <LooseSheet familyId={familyId} overview={o} providerId={sheet.providerId} onClose={() => setSheet(null)} onChanged={() => changed()} />}
       {sheet?.kind === 'meter' && (() => {
         const m = o.meters.find(x => x.id === sheet.id);
         return m ? <MeterSheet familyId={familyId} meter={m} onClose={() => setSheet(null)} onChanged={() => changed()} /> : null;
@@ -167,16 +178,9 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
   );
 }
 
-function OverviewSeg({ o, familyId, onProvider, onAddProvider, onStats, onChanged }: {
-  o: Overview; familyId: number; onProvider: (id: number) => void; onAddProvider: () => void; onStats: () => void; onChanged: (o?: Overview) => void;
+function OverviewSeg({ o, onProvider, onAddProvider, onStats }: {
+  o: Overview; onProvider: (id: number) => void; onAddProvider: () => void; onStats: () => void;
 }) {
-  const [heatBusy, setHeatBusy] = useState(false);
-  const toggleHeating = async (on: boolean) => {
-    setHeatBusy(true);
-    try { await housingApi.heating(familyId, on); toast(on ? 'Опалення позначено' : 'Опалювальний період закрито'); onChanged(); }
-    catch (e) { toast(errText(e), 'err'); }
-    setHeatBusy(false);
-  };
   const p = o.power;
   const since = p?.since ? (Date.now() - new Date(p.since).getTime()) / 3600000 : null;
   return (
@@ -190,22 +194,12 @@ function OverviewSeg({ o, familyId, onProvider, onAddProvider, onStats, onChange
             chevron onClick={onStats} />
         </Card>
       )}
-      <Card flush>
-        <div className="row">
-          <div className="row__icon">♨️</div>
-          <div className="row__body">
-            <div className="row__title">Опалення</div>
-            <div className="row__sub">{o.heating.on ? `Увімкнено з ${day(o.heating.since)} — прогноз за зимовим споживанням` : 'Позначте, коли вмикаєте обігрів'}</div>
-          </div>
-          <div style={{ opacity: heatBusy ? 0.5 : 1 }}><Switch on={o.heating.on} label="Опалення" onChange={toggleHeating} /></div>
-        </div>
-      </Card>
       <Section title="Послуги" action="+ Додати" onAction={onAddProvider}>
         {o.providers.length === 0 ? <Empty icon="🧾" title="Ще немає послуг" action="Додати послугу" onAction={onAddProvider} /> : (
           <Card flush>
             {o.providers.map(pr => {
               const s = providerStatus(pr);
-              return <Row key={pr.id} icon={pr.icon} title={<>{pr.name}{pr.warnings > 0 && <span className="warn"> ⚠️</span>}</>} sub={s.sub} end={s.end} onClick={() => onProvider(pr.id)} />;
+              return <Row key={pr.id} icon={pr.icon} title={<>{pr.name}{pr.warnings > 0 && <span className="warn"> ⚠️</span>}{pr.suggested > 0 && <span style={{ color: 'var(--link)' }}> 🔗</span>}</>} sub={s.sub} end={s.end} onClick={() => onProvider(pr.id)} />;
             })}
           </Card>
         )}

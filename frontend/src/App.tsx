@@ -12,7 +12,10 @@ import { CreateJarModal, TopUpJarModal } from './components/JarModals';
 import HomePage from './pages/HomePage';
 import TransactionsPage from './pages/TransactionsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
-import MorePage from './pages/MorePage';
+import MorePage, { MoreScreen } from './pages/MorePage';
+import LinkSheet from './payments/LinkSheet';
+import { payApi, Upcoming } from './payments/api';
+import type { ObDraft } from './payments/ObligationForm';
 import HousingPage, { HousingAction } from './housing/HousingPage';
 import { housingApi } from './housing/api';
 import type { Overview } from './housing/types';
@@ -36,6 +39,9 @@ export default function App() {
   const [jars, setJars] = useState<Jar[]>([]);
   const [bankBalances, setBankBalances] = useState<BankUserBalances[]>([]);
   const [housing, setHousing] = useState<Overview | null>(null);
+  const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
+  const [linkTx, setLinkTx] = useState<Transaction | null>(null);
+  const [paymentsDraft, setPaymentsDraft] = useState<ObDraft | null>(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [tgUser, setTgUser] = useState<any>(null);
@@ -43,9 +49,9 @@ export default function App() {
   const [hasMore, setHasMore] = useState(true);
 
   const initial = startParam();
-  const [activeTab, setActiveTab] = useState<Tab>(TABS.includes(initial as Tab) ? (initial as Tab) : initial === 'readings' ? 'housing' : 'home');
+  const [activeTab, setActiveTab] = useState<Tab>(TABS.includes(initial as Tab) ? (initial as Tab) : initial === 'readings' ? 'housing' : initial === 'payments' ? 'more' : 'home');
   const [housingAction, setHousingAction] = useState<HousingAction>(initial === 'readings' ? 'readings' : null);
-  const [moreScreen, setMoreScreen] = useState<{ screen: 'jars' | null; key: number }>({ screen: null, key: 0 });
+  const [moreScreen, setMoreScreen] = useState<{ screen: MoreScreen; key: number }>({ screen: initial === 'payments' ? 'payments' : null, key: 0 });
   const [addType, setAddType] = useState<'Витрати' | 'Поповнення' | null>(null);
   const [viewingTx, setViewingTx] = useState<Transaction | null>(null);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
@@ -83,6 +89,7 @@ export default function App() {
     if (myFam) { setFamilyName(myFam.name); setInviteCode(myFam.invite_code); }
     setHousing(null);
     housingApi.overview(fId).then(setHousing).catch(() => { /* housing is optional */ });
+    payApi.upcoming(fId, 10).then(setUpcoming).catch(() => setUpcoming([]));
   }, []);
 
   useEffect(() => {
@@ -194,7 +201,10 @@ export default function App() {
   // додатково писалась «Витрата», і поповнення списувалось з готівки двічі.
   const onJarTopUp = (updated: Jar) => { setJars(prev => prev.map(j => j.id === updated.id ? updated : j)); refreshStats(); };
 
-  const openJars = () => { setMoreScreen(s => ({ screen: 'jars', key: s.key + 1 })); setActiveTab('more'); };
+  const openMore = (screen: MoreScreen) => { setMoreScreen(s => ({ screen, key: s.key + 1 })); setActiveTab('more'); };
+  const openJars = () => openMore('jars');
+  const refreshUpcoming = () => { if (familyId) payApi.upcoming(familyId, 10).then(setUpcoming).catch(() => { /**/ }); };
+  const openPayments = (draft: ObDraft | null = null) => { setPaymentsDraft(draft); openMore('payments'); };
   const accounts = ['Готівка', ...(bankBalances.find(b => b.user_id === me?.id)?.accounts.map(a => a.name) || [])];
   const housingOff = housing?.profile?.mode === 'off';
 
@@ -216,6 +226,7 @@ export default function App() {
 
       {activeTab === 'home' && (
         <HomePage stats={stats} transactions={transactions} categories={categories} bankBalances={bankBalances} jars={jars} housing={housing}
+          upcoming={upcoming} onUpcoming={u => (u && u.kind === 'housing' ? setActiveTab('housing') : openPayments())}
           onOpenInbox={() => setIsInboxOpen(true)} onSeeAll={() => setActiveTab('transactions')}
           onAdd={t => setAddType(t || 'Витрати')} onView={setViewingTx}
           onHousing={() => setActiveTab('housing')} onReadings={() => { setHousingAction('readings'); setActiveTab('housing'); }}
@@ -227,7 +238,7 @@ export default function App() {
       )}
       {activeTab === 'housing' && familyId && (
         <HousingPage familyId={familyId} overview={housing} setOverview={setHousing} accounts={accounts}
-          onFinanceChanged={() => { refreshTransactions(); refreshStats(); }}
+          onFinanceChanged={() => { refreshTransactions(); refreshStats(); refreshUpcoming(); }}
           action={housingAction} onActionDone={() => setHousingAction(null)} />
       )}
       {activeTab === 'analytics' && <AnalyticsPage stats={stats} />}
@@ -240,6 +251,7 @@ export default function App() {
           noteText={noteText} setNoteText={setNoteText} onNoteBlur={saveNote} onNoteClear={clearNote}
           splitBy={splitBy} setSplitBy={setSplitBy}
           housingEnabled={!housingOff && !!housing?.profile}
+          categories={categories} paymentsDraft={paymentsDraft} onPaymentsChanged={() => { refreshUpcoming(); refreshTransactions(); }}
           onHousingSettings={() => { setHousingAction('settings'); setActiveTab('housing'); }}
           onSwitchFamily={switchFamily} onInviteRegenerated={setInviteCode}
           onMemberRemoved={uid => setFamilyUsers(prev => prev.filter(u => u.id !== uid))}
@@ -251,14 +263,18 @@ export default function App() {
         <button className="fab" aria-label="Додати операцію" onClick={() => { haptic('medium'); setAddType('Витрати'); }}>+</button>
       )}
 
-      <TabBar activeTab={activeTab} onTab={t => { setActiveTab(t); if (t === 'more') setMoreScreen(s => ({ screen: null, key: s.key + 1 })); }}
+      <TabBar activeTab={activeTab} onTab={t => { setActiveTab(t); if (t === 'more') { setPaymentsDraft(null); setMoreScreen(s => ({ screen: null, key: s.key + 1 })); } }}
         hidden={housingOff && activeTab !== 'housing' ? ['housing'] : []} />
 
       {isJarModalOpen && familyId && <CreateJarModal familyId={familyId} onClose={() => setIsJarModalOpen(false)} onCreated={j => setJars(prev => [...prev, j])} />}
       {topupJar && <TopUpJarModal jar={topupJar} onClose={() => setTopupJar(null)} onToppedUp={onJarTopUp} />}
       {isInboxOpen && familyId && <InboxModal familyId={familyId} categories={categories} onClose={() => setIsInboxOpen(false)} onCategorized={handleCategorized} />}
-      {viewingTx && <TxDetailsSheet tx={viewingTx} categories={categories} onClose={() => setViewingTx(null)}
-        onEdit={() => { setEditingTx(viewingTx); setViewingTx(null); }} onCopy={copyToClipboard} />}
+      {viewingTx && familyId && <TxDetailsSheet tx={viewingTx} categories={categories} familyId={familyId} onClose={() => setViewingTx(null)}
+        onEdit={() => { setEditingTx(viewingTx); setViewingTx(null); }} onCopy={copyToClipboard}
+        onLink={() => { setLinkTx(viewingTx); setViewingTx(null); }} />}
+      {linkTx && familyId && <LinkSheet familyId={familyId} tx={linkTx} onClose={() => setLinkTx(null)}
+        onChanged={() => { refreshTransactions(); refreshStats(); refreshUpcoming(); housingApi.overview(familyId).then(setHousing).catch(() => { /**/ }); }}
+        onCreate={draft => { setLinkTx(null); openPayments(draft); }} />}
       {(addType || editingTx) && familyId && me && (
         <TxModal editingTx={editingTx} categories={categories} familyId={familyId} dbUserId={me.id} accounts={accounts}
           initialType={addType || 'Витрати'}

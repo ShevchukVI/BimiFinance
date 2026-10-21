@@ -26,6 +26,7 @@ export default function ProviderForm({ familyId, provider, meters, onClose, onSa
   const [start, setStart] = useState(provider?.start_date || '');
   const [opening, setOpening] = useState(provider?.opening_balance ? String(provider.opening_balance) : '');
   const [note, setNote] = useState(provider?.note || '');
+  const [pattern, setPattern] = useState(provider?.match_pattern || '');
   const [ms, setMs] = useState<MeterDraft[]>(meters.map(m => ({ id: m.id, name: m.name, unit: m.unit, zone: m.zone || '', tariff: m.tariff ? String(m.tariff) : '' })));
   const [more, setMore] = useState(!!provider);
   const [busy, setBusy] = useState(false);
@@ -46,7 +47,7 @@ export default function ProviderForm({ familyId, provider, meters, onClose, onSa
     setBusy(true);
     const body = {
       name: name.trim(), service, icon, billing, fixed_amount: parseNum(fixed) || null, due_day: Number(dueDay) || null,
-      account_number: account.trim(), pay_url: payUrl.trim(), start_date: start || null, opening_balance: parseNum(opening) || 0, note: note.trim(),
+      account_number: account.trim(), pay_url: payUrl.trim(), start_date: start || null, opening_balance: parseNum(opening) || 0, note: note.trim(), match_pattern: pattern.trim(),
     };
     try {
       const saved = provider ? await housingApi.updateProvider(familyId, provider.id, body) : await housingApi.createProvider(familyId, body);
@@ -119,6 +120,9 @@ export default function ProviderForm({ familyId, provider, meters, onClose, onSa
 
       {more ? (
         <>
+          <Field label="Як виглядає оплата в банку" hint="Слово з опису операції в Monobank (напр. «Електроенергія»). Нові оплати зарахуються самі.">
+            <input className="input" placeholder="Електроенергія | ONDO" value={pattern} onChange={e => setPattern(e.target.value)} />
+          </Field>
           <Field label="Особовий рахунок"><input className="input" value={account} onChange={e => setAccount(e.target.value)} /></Field>
           <Field label="Посилання на оплату" hint="Сайт або застосунок постачальника"><input className="input" inputMode="url" placeholder="https://" value={payUrl} onChange={e => setPayUrl(e.target.value)} /></Field>
           <div className="grid2">
@@ -127,7 +131,7 @@ export default function ProviderForm({ familyId, provider, meters, onClose, onSa
           </div>
           <Field label="Примітка"><input className="input" value={note} onChange={e => setNote(e.target.value)} /></Field>
         </>
-      ) : <Row compact title="Рахунок, посилання на оплату, борг на старті" chevron onClick={() => setMore(true)} />}
+      ) : <Row compact title="Як виглядає в банку, рахунок, посилання, борг на старті" chevron onClick={() => setMore(true)} />}
     </Sheet>
   );
 }

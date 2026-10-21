@@ -3,12 +3,15 @@ import api from '../api';
 import { toast } from '../toast';
 import { confirmAsync } from '../tg';
 import Avatar from '../components/Avatar';
-import { FamilyMembership, FamilyUser, Jar } from '../types';
+import { Category, FamilyMembership, FamilyUser, Jar } from '../types';
+import PaymentsPage from '../payments/PaymentsPage';
+import type { ObDraft } from '../payments/ObligationForm';
 import { Badge, Button, Card, Field, Row, Section, SubScreen } from '../ui';
 import JarsPage from './JarsPage';
 import NotesPage from './NotesPage';
 
-type Screen = null | 'jars' | 'notes' | 'family' | 'mono';
+export type MoreScreen = null | 'jars' | 'notes' | 'family' | 'mono' | 'payments';
+type Screen = MoreScreen;
 
 export default function MorePage(props: {
   me: { id: number; name: string; role: string | null };
@@ -18,6 +21,7 @@ export default function MorePage(props: {
   noteText: string; setNoteText: (s: string) => void; onNoteBlur: () => void; onNoteClear: () => void;
   splitBy: number; setSplitBy: (n: number) => void;
   housingEnabled: boolean; onHousingSettings: () => void;
+  categories: Category[]; paymentsDraft?: ObDraft | null; onPaymentsChanged?: () => void;
   onSwitchFamily: (familyId: number) => void; onInviteRegenerated: (code: string) => void;
   onMemberRemoved: (userId: number) => void; onMemberRoleChange: (userId: number, role: 'admin' | 'member') => void;
   onLeaveFamily: () => void; onTokenSaved: () => void; copyToClipboard: (text: string) => void;
@@ -28,6 +32,8 @@ export default function MorePage(props: {
 
   if (screen === 'jars') return <div className="page"><SubScreen title="Цілі" onBack={back}>
     <JarsPage jars={props.jars} familyId={props.familyId} onTopUp={props.onJarTopUp} onCreate={props.onJarCreate} /></SubScreen></div>;
+  if (screen === 'payments') return <div className="page"><SubScreen title="Кредити й підписки" onBack={back}>
+    <PaymentsPage familyId={props.familyId} categories={props.categories} initialDraft={props.paymentsDraft} onChanged={props.onPaymentsChanged} /></SubScreen></div>;
   if (screen === 'notes') return <div className="page"><SubScreen title="Чернетка" onBack={back}>
     <NotesPage noteText={props.noteText} setNoteText={props.setNoteText} onBlur={props.onNoteBlur} onClear={props.onNoteClear}
       splitBy={props.splitBy} setSplitBy={props.setSplitBy} /></SubScreen></div>;
@@ -39,13 +45,14 @@ export default function MorePage(props: {
     <div className="page">
       <h1 className="page-title">Ще</h1>
       <Card flush>
+        {item('💳', 'Кредити й підписки', 'Розстрочки, кредити, YouTube, iCloud…', () => setScreen('payments'))}
         {item('🎯', 'Цілі', props.jars.length ? `${props.jars.length} скарбнич${props.jars.length === 1 ? 'ка' : 'ки'}` : 'Відкладати на мрію', () => setScreen('jars'))}
         {item('📝', 'Чернетка', 'Швидкі підрахунки й нотатки', () => setScreen('notes'))}
         {item('🏡', 'Житло', props.housingEnabled ? 'Комуналка, оренда, лічильники' : 'Вимкнено — увімкнути', props.onHousingSettings)}
       </Card>
       <Card flush>
         {item('👨‍👩‍👧', "Сім'я", `${props.familyName} · ${props.familyUsers.length} учасн.`, () => setScreen('family'))}
-        {item('💳', 'Monobank', props.hasMonoToken ? <span className="pos">Підключено</span> : 'Не підключено', () => setScreen('mono'))}
+        {item('🏦', 'Monobank', props.hasMonoToken ? <span className="pos">Підключено</span> : 'Не підключено', () => setScreen('mono'))}
         <Row icon="📤" title="Експорт в Excel" sub="Скоро" />
       </Card>
     </div>
