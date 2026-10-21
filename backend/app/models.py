@@ -69,6 +69,7 @@ class Transaction(Base):
     date = Column(Date, nullable=False)
     currency = Column(String, default="UAH", nullable=False)  # UAH/USD/EUR...
     jar_id = Column(Integer, ForeignKey("jars.id"), nullable=True)  # deposit/withdrawal to/from jar
+    obligation_id = Column(Integer, ForeignKey("obligations.id", ondelete="SET NULL"), nullable=True)  # credit/subscription payment
     family = relationship("Family", back_populates="transactions")
     user = relationship("User", back_populates="transactions")
     category = relationship("Category", back_populates="transactions")
@@ -143,6 +144,7 @@ class UtilityProvider(Base):
     start_date = Column(Date, nullable=True)  # ledger start for providers without bills
     opening_balance = Column(Float, default=0.0)  # debt at start_date (+ debt, - overpay)
     note = Column(String, default="")
+    match_pattern = Column(String, default="")  # how payments look in the bank («Електроенергія|ONDO»)
     is_active = Column(Boolean, default=True, nullable=False)
     sort_order = Column(Integer, default=0)
 
@@ -275,3 +277,29 @@ class HousingReminderLog(Base):
     family_id = Column(Integer, ForeignKey("families.id"), nullable=False)
     key = Column(String, nullable=False)
     sent_on = Column(Date, nullable=False)
+
+
+class Obligation(Base):
+    """Regular payment the family owes: installment («оплата частинами»), loan or subscription.
+    Payments are finance transactions linked via transactions.obligation_id."""
+    __tablename__ = "obligations"
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False, default="installment")  # installment | loan | subscription
+    name = Column(String, nullable=False)
+    icon = Column(String, default="")
+    amount = Column(Float, nullable=False)  # regular payment
+    currency = Column(String, default="UAH", nullable=False)
+    period = Column(String, default="month", nullable=False)  # month | year
+    due_day = Column(Integer, nullable=True)
+    first_due = Column(Date, nullable=True)  # first scheduled payment
+    payments_total = Column(Integer, nullable=True)  # installments: 10, 12, 24…
+    end_date = Column(Date, nullable=True)  # last payment (loans) / cancel date (subscriptions)
+    total_amount = Column(Float, nullable=True)  # full price / principal (info)
+    paid_before = Column(Integer, default=0)  # payments made outside Bimi (not linked)
+    match_pattern = Column(String, default="")  # bank description to auto-link («Citrus|monomarket»)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)  # applied to linked pending txs
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # whose card pays it
+    remind = Column(Boolean, default=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    note = Column(String, default="")

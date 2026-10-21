@@ -46,6 +46,7 @@ class ProviderIn(BaseModel):
     start_date: Optional[str] = None
     opening_balance: Optional[float] = None
     note: Optional[str] = None
+    match_pattern: Optional[str] = None  # bank description for auto-linking payments
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
 

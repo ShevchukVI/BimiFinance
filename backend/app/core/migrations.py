@@ -77,6 +77,10 @@ def run_migrations():
             "ALTER TABLE utility_readings ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'manual'",
             "ALTER TABLE utility_readings ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)",
             "CREATE INDEX IF NOT EXISTS ix_utility_readings_meter_id ON utility_readings (meter_id)",
+            "ALTER TABLE utility_providers ADD COLUMN IF NOT EXISTS match_pattern VARCHAR DEFAULT ''",
+            # Obligations (credits / installments / subscriptions): link a transaction to one
+            "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS obligation_id INTEGER REFERENCES obligations(id) ON DELETE SET NULL",
+            "CREATE INDEX IF NOT EXISTS ix_transactions_obligation_id ON transactions (obligation_id)",
         ):
             conn.execute(text(stmt))
 

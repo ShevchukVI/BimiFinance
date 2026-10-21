@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app import crud, schemas
 from app.core.deps import Actor, check_family_membership, get_actor, require_family
 from app.database import get_db
+from app.services.obligations import auto_link
 
 router = APIRouter(tags=["transactions"])
 
@@ -29,9 +30,13 @@ def create_transaction(tx: schemas.TransactionCreate, actor: Actor = Depends(get
     else:
         check_family_membership(db, actor, tx.family_id)
         family_id, user_id = actor.family_id, actor.user_id  # family_id never trusted from body
-    return crud.create_transaction(db, family_id, user_id, tx.category_id, tx.amount, tx.type, tx.title,
-                                   tx.note, tx.account, tx.date, tx.mono_id,
-                                   currency=tx.currency, jar_id=tx.jar_id)
+    obj = crud.create_transaction(db, family_id, user_id, tx.category_id, tx.amount, tx.type, tx.title,
+                                  tx.note, tx.account, tx.date, tx.mono_id,
+                                  currency=tx.currency, jar_id=tx.jar_id)
+    # credit / subscription / housing payment recognised by its bank description → linked automatically
+    if auto_link(db, obj):
+        db.refresh(obj)
+    return obj
 
 
 @router.post("/transactions/transfer", response_model=list[schemas.TransactionOut])

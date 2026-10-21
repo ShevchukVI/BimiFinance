@@ -98,6 +98,19 @@ def fetch_page(channel: str, before: Optional[int] = None, timeout: int = 10) ->
     return urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "replace")
 
 
+def validate_channel(channel: str, fetch=None) -> int:
+    """Raise HTTPException unless the channel exists and contains svitlobot posts. Returns events found."""
+    from fastapi import HTTPException  # service stays importable without FastAPI request context
+    try:
+        page = (fetch or fetch_page)(channel)
+    except Exception:
+        raise HTTPException(502, "Не вдалося відкрити канал — перевірте назву або спробуйте пізніше")
+    events = parse_page(page)
+    if not events:
+        raise HTTPException(400, "У каналі не знайдено повідомлень світлобота («Світло зникло / з'явилося»)")
+    return len(events)
+
+
 def apply_events(db: Session, channel: str, events: list[Event]) -> int:
     """Upsert outages from events (chronological). Returns number of changed rows."""
     changed = 0

@@ -128,7 +128,8 @@ def provider_out(p: models.UtilityProvider) -> dict:
             "billing": p.billing, "fixed_amount": p.fixed_amount, "due_day": p.due_day,
             "account_number": p.account_number or "", "pay_url": p.pay_url or "",
             "start_date": str(p.start_date) if p.start_date else None, "opening_balance": p.opening_balance or 0.0,
-            "note": p.note or "", "is_active": p.is_active, "sort_order": p.sort_order or 0}
+            "note": p.note or "", "match_pattern": p.match_pattern or "", "is_active": p.is_active,
+            "sort_order": p.sort_order or 0}
 
 
 def profile_out(p: Optional[models.HousingProfile]) -> Optional[dict]:
@@ -229,6 +230,15 @@ def build_overview(db: Session, fid: int, today: Optional[date] = None) -> dict:
                        "text": f"Внесіть платіжки за {_month_name(H.add_months(H.month_start(today), -1))}: "
                                + ", ".join(missing)})
 
+    from app.services.obligations import suggestions as _suggestions  # local import: avoid a cycle
+    sug = _suggestions(db, fid, today=today)
+    for po in out_providers:
+        po["suggested"] = len(sug["providers"].get(po["id"], []))
+    loose = sum(po["suggested"] for po in out_providers) + len(sug["unassigned"])
+    if loose:
+        alerts.append({"level": "info", "kind": "link",
+                       "text": f"{loose} {'оплата схожа' if loose == 1 else 'оплати схожі'} на комуналку, але не пов'язані з послугою — розкласти?"})
+
     meter_rows = [H.meter_summary(m, bills_by_p.get(m.provider_id, []), notes, today) for m in meters if m.is_active]
     if meter_rows:
         rd = (profile.readings_day if profile else 1) or 1
@@ -239,6 +249,9 @@ def build_overview(db: Session, fid: int, today: Optional[date] = None) -> dict:
                               "text": "Час внести показники лічильників" + (f" (останні {newest:%d.%m})" if newest else "")})
 
     heating = next((n for n in notes if n.kind == "heating" and n.end_date is None and n.date <= today), None)
+    hint = _heating_hint(profile, meters, heating, today)
+    if hint:
+        alerts.append(hint)
     alerts.sort(key=lambda a: 0 if a["level"] == "warn" else 1)
     return {
         "today": str(today), "profile": profile_out(profile),
@@ -248,6 +261,36 @@ def build_overview(db: Session, fid: int, today: Optional[date] = None) -> dict:
                     "note_id": heating.id if heating else None},
         "power": _power_summary(db, profile, today),
     }
+
+
+HEATING_UTILITY = {"electric": "electricity", "gas": "gas"}
+
+
+def _heating_hint(profile, meters, heating, today: date) -> Optional[dict]:
+    """Season marker is set twice a year, so instead of a permanent switch we suggest it
+    when the heating meter (electricity for electric heaters) jumps in a cold month."""
+    if profile is None:
+        return None
+    if heating is not None:
+        if today.month in (5, 6, 7, 8, 9) and (today - heating.date).days > 30:
+            return {"level": "info", "kind": "heating", "text": "Опалювальний сезон ще позначений — завершити його?"}
+        return None
+    utility = HEATING_UTILITY.get(profile.heating or "")
+    if not utility or today.month not in (10, 11, 12, 1, 2, 3, 4):
+        return None
+    for m in meters:
+        if not m.is_active or m.utility_type != utility:
+            continue
+        pts = H.series(m.readings)
+        if len(pts) < 3 or (today - pts[-1].date).days > 21:
+            continue
+        recent = H.daily_rate(pts, ref=pts[-1].date, window=21)
+        base = H.daily_rate(pts, ref=pts[-1].date - timedelta(days=21), window=45)
+        if recent and base and recent >= base * 1.3 and recent - base >= 0.8:
+            return {"level": "info", "kind": "heating",
+                    "text": f"Схоже, почали обігрів: {m.name} ≈ {recent:.1f} {m.unit}/день (+{(recent / base - 1) * 100:.0f}%). "
+                            "Позначити опалювальний сезон?"}
+    return None
 
 
 def _zero_accrual_usage(p, meters, bills, today: date) -> Optional[str]:
@@ -328,6 +371,8 @@ def update_profile(family_id: int, payload: S.ProfileIn, _: None = Depends(requi
         data["svitlobot_channel"] = svitlobot.normalize_channel(raw)
         if raw and not data["svitlobot_channel"]:
             raise HTTPException(400, "Невірна назва каналу світлобота")
+        if data["svitlobot_channel"] and data["svitlobot_channel"] != (p.svitlobot_channel or None):
+            svitlobot.validate_channel(data["svitlobot_channel"])
     for k, v in data.items():
         setattr(p, k, v)
     db.add(p)
@@ -950,16 +995,22 @@ def system_sync_outages(_: None = Depends(require_internal_key), db: Session = D
 
 def compute_reminders(db: Session, today: Optional[date] = None) -> list[dict]:
     """Due reminders that were not sent yet: readings day, payments, rent."""
+    from app.api.obligations import obligation_reminders  # local import: avoid a cycle
     today = today or H.today_kyiv()
     out = []
-    for profile in db.query(models.HousingProfile).filter(models.HousingProfile.reminders_enabled.is_(True)).all():
-        if profile.mode == "off":
-            continue
-        fid = profile.family_id
-        ov = build_overview(db, fid, today)
-        ym = f"{today:%Y-%m}"
+    profiles = {p.family_id: p for p in db.query(models.HousingProfile).all()}
+    ob_families = {r[0] for r in db.query(models.Obligation.family_id).filter(models.Obligation.is_active.is_(True),
+                                                                              models.Obligation.remind.is_(True))}
+    for fid in sorted(set(profiles) | ob_families):
+        profile = profiles.get(fid)
         msgs: list[tuple[str, str]] = []
-        rd = H.due_date(today, profile.readings_day or 1)
+        if fid in ob_families and (profile is None or profile.reminders_enabled):
+            msgs += obligation_reminders(db, fid, today)
+        if profile is None or not profile.reminders_enabled or profile.mode == "off":
+            profile = None
+        ov = build_overview(db, fid, today) if profile is not None else {"meters": [], "providers": []}
+        ym = f"{today:%Y-%m}"
+        rd = H.due_date(today, (profile.readings_day if profile else 1) or 1)
         if ov["meters"] and today in (rd, rd + timedelta(days=2)):
             newest = max((_d(m["last_date"]) for m in ov["meters"] if m["last_date"]), default=None)
             if newest is None or newest < rd - timedelta(days=3):
@@ -992,7 +1043,9 @@ def compute_reminders(db: Session, today: Optional[date] = None) -> list[dict]:
             continue
         tg_ids = [u.tg_id for u in crud.get_users(db, fid) if u.tg_id]
         out.append({"family_id": fid, "tg_ids": tg_ids, "keys": [k for k, _t in fresh],
-                    "text": "🏡 Житло\n" + "\n".join(t for _k, t in fresh)})
+                    "text": "🔔 Нагадування Bimi\n" + "\n".join(t for _k, t in fresh),
+                    "tab": "readings" if any(k.startswith("readings:") for k, _t in fresh)
+                    else ("housing" if any(k.startswith("pay:") for k, _t in fresh) else "payments")})
     return out
 
 

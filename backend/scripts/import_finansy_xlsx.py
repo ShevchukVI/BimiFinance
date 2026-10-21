@@ -203,6 +203,7 @@ def parse(path, config):
             seen.add(k)
             pays.append(p)
     return {"profile": config["profile"], "providers": config["providers"], "rent": config.get("rent"),
+            "obligations": config.get("obligations", []),
             "readings": sorted(best.values(), key=lambda x: (x["date"], x["meter"])),
             "bills": sorted(out["bills"], key=lambda b: (b["provider"], b["period"])),
             "payments": pays, "notes": out["notes"]}
