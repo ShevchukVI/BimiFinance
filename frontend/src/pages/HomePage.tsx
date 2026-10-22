@@ -1,6 +1,7 @@
 import { Stats, Transaction, Category, BankUserBalances, Jar, sortCurrencies } from '../types';
 import type { Overview } from '../housing/types';
 import type { Upcoming } from '../payments/api';
+import type { Budgets } from '../analytics/api';
 import { approx, day, inMonth, money, todayIso } from '../format';
 import { Badge, Banner, Card, Empty, Progress, Row, Section } from '../ui';
 import { TxList } from '../components/TransactionCard';
@@ -8,12 +9,12 @@ import { TxList } from '../components/TransactionCard';
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function HomePage({
-  stats, transactions, categories, bankBalances, jars, housing, upcoming,
-  onOpenInbox, onUpcoming, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
+  stats, transactions, categories, bankBalances, jars, housing, upcoming, budgets,
+  onOpenInbox, onUpcoming, onBudgets, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
 }: {
   stats: Stats | null; transactions: Transaction[]; categories: Category[]; bankBalances: BankUserBalances[];
-  jars: Jar[]; housing: Overview | null; upcoming: Upcoming[];
-  onOpenInbox: () => void; onUpcoming: (u: Upcoming | null) => void; onSeeAll: () => void; onAdd: (type?: 'Витрати' | 'Поповнення') => void;
+  jars: Jar[]; housing: Overview | null; upcoming: Upcoming[]; budgets: Budgets | null;
+  onOpenInbox: () => void; onUpcoming: (u: Upcoming | null) => void; onBudgets: () => void; onSeeAll: () => void; onAdd: (type?: 'Витрати' | 'Поповнення') => void;
   onView: (tx: Transaction) => void; onHousing: () => void; onReadings: () => void; onJar: (j: Jar) => void; onJars: () => void;
 }) {
   const pending = stats?.pending_count || 0;
@@ -71,6 +72,18 @@ export default function HomePage({
           <b>{pending} операцій без категорії</b><div className="muted small">Розкладіть за хвилину — так аналітика буде точною</div>
         </Banner>
       )}
+
+      {(() => {
+        const hot = (budgets?.items || []).filter(b => b.status !== 'ok');
+        if (!hot.length) return null;
+        const over = hot.filter(b => b.status === 'over');
+        return (
+          <Banner icon="🎯" tone="warn" onClick={onBudgets}>
+            <b>{over.length ? `Перевищено бюджет: ${over.map(b => b.name.replace(/^\S+\s/, '')).join(', ')}` : 'Бюджет майже вичерпано'}</b>
+            <div className="muted small">{hot.slice(0, 3).map(b => `${b.name.replace(/^\S+\s/, '')} ${Math.round(b.pct)}%`).join(' · ')}</div>
+          </Banner>
+        );
+      })()}
 
       {(cash.size > 0 || bankBalances.length > 0) && (
         <Section title="Рахунки">

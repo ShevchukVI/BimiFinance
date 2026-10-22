@@ -16,6 +16,7 @@ import MorePage, { MoreScreen } from './pages/MorePage';
 import LinkSheet from './payments/LinkSheet';
 import { payApi, Upcoming } from './payments/api';
 import type { ObDraft } from './payments/ObligationForm';
+import { anApi, Budgets } from './analytics/api';
 import HousingPage, { HousingAction } from './housing/HousingPage';
 import { housingApi } from './housing/api';
 import type { Overview } from './housing/types';
@@ -40,6 +41,7 @@ export default function App() {
   const [bankBalances, setBankBalances] = useState<BankUserBalances[]>([]);
   const [housing, setHousing] = useState<Overview | null>(null);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
+  const [budgets, setBudgets] = useState<Budgets | null>(null);
   const [linkTx, setLinkTx] = useState<Transaction | null>(null);
   const [paymentsDraft, setPaymentsDraft] = useState<ObDraft | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,6 +96,8 @@ export default function App() {
     setUpcoming([]);
     housingApi.overview(fId).then(o => { if (famRef.current === fId) setHousing(o); }).catch(() => { /* housing is optional */ });
     payApi.upcoming(fId, 10).then(u => { if (famRef.current === fId) setUpcoming(u); }).catch(() => { /**/ });
+    setBudgets(null);
+    anApi.budgets(fId).then(b => { if (famRef.current === fId) setBudgets(b); }).catch(() => { /**/ });
   }, []);
 
   useEffect(() => {
@@ -126,6 +130,8 @@ export default function App() {
   const refreshStats = async () => {
     if (!familyId) return;
     try { setStats((await api.get(`/families/${familyId}/stats`)).data); } catch { /**/ }
+    const f = familyId;
+    anApi.budgets(f).then(b => { if (famRef.current === f) setBudgets(b); }).catch(() => { /**/ });
   };
   const refreshTransactions = async () => {
     if (!familyId) return;
@@ -237,7 +243,7 @@ export default function App() {
 
       {activeTab === 'home' && (
         <HomePage stats={stats} transactions={transactions} categories={categories} bankBalances={bankBalances} jars={jars} housing={housing}
-          upcoming={upcoming} onUpcoming={u => { if (u && u.kind === 'housing') { setHousingAction({ pay: u.id }); setActiveTab('housing'); } else openPayments(); }}
+          upcoming={upcoming} budgets={budgets} onBudgets={() => setActiveTab('analytics')} onUpcoming={u => { if (u && u.kind === 'housing') { setHousingAction({ pay: u.id }); setActiveTab('housing'); } else openPayments(); }}
           onOpenInbox={() => setIsInboxOpen(true)} onSeeAll={() => setActiveTab('transactions')}
           onAdd={t => setAddType(t || 'Витрати')} onView={setViewingTx}
           onHousing={() => setActiveTab('housing')} onReadings={() => { setHousingAction('readings'); setActiveTab('housing'); }}
@@ -252,7 +258,7 @@ export default function App() {
           onFinanceChanged={() => { refreshTransactions(); refreshStats(); refreshUpcoming(); }}
           action={housingAction} onActionDone={() => setHousingAction(null)} />
       )}
-      {activeTab === 'analytics' && <AnalyticsPage stats={stats} />}
+      {activeTab === 'analytics' && familyId && <AnalyticsPage familyId={familyId} categories={categories} onView={setViewingTx} onBudgetsChanged={setBudgets} />}
       {activeTab === 'more' && me && familyId && (
         <MorePage key={moreScreen.key} initialScreen={moreScreen.screen}
           me={{ id: me.id, name: me.name, role: me.role || 'member' }}

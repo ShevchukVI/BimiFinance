@@ -115,8 +115,14 @@ export function Banner({ icon, children, tone, onClick }: { icon?: ReactNode; ch
   );
 }
 
-export function Progress({ value }: { value: number }) {
-  return <div className="progress"><i style={{ width: `${Math.max(0, Math.min(100, value))}%` }} /></div>;
+export function Progress({ value, tone, mark }: { value: number; tone?: 'warn' | 'danger'; mark?: number }) {
+  const bg = tone === 'danger' ? 'var(--danger)' : tone === 'warn' ? 'var(--warn)' : undefined;
+  return (
+    <div className="progress" style={{ position: 'relative' }}>
+      <i style={{ width: `${Math.max(0, Math.min(100, value))}%`, background: bg }} />
+      {mark !== undefined && mark > 0 && mark < 100 && <span style={{ position: 'absolute', top: -2, bottom: -2, left: `${mark}%`, width: 2, borderRadius: 1, background: 'var(--hint)' }} />}
+    </div>
+  );
 }
 
 export function Tile({ label, value, tone }: { label: ReactNode; value: ReactNode; tone?: 'pos' | 'danger' | 'warn' }) {
