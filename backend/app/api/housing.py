@@ -1015,11 +1015,21 @@ def compute_reminders(db: Session, today: Optional[date] = None) -> list[dict]:
     profiles = {p.family_id: p for p in db.query(models.HousingProfile).all()}
     ob_families = {r[0] for r in db.query(models.Obligation.family_id).filter(models.Obligation.is_active.is_(True),
                                                                               models.Obligation.remind.is_(True))}
-    for fid in sorted(set(profiles) | ob_families):
+    from app.services.analytics import budgets_status  # local import: avoid a cycle
+    budget_families = {r[0] for r in db.query(models.Budget.family_id).distinct()}
+    for fid in sorted(set(profiles) | ob_families | budget_families):
         profile = profiles.get(fid)
         msgs: list[tuple[str, str]] = []
         if fid in ob_families and (profile is None or profile.reminders_enabled):
             msgs += obligation_reminders(db, fid, today)
+        if fid in budget_families and (profile is None or profile.reminders_enabled):
+            bs = budgets_status(db, fid, H.month_start(today), today)
+            for b in bs["items"]:
+                level = 100 if b["spent"] > b["amount"] else 80 if b["pct"] >= 80 else None
+                if level:
+                    msgs.append((f"budget:{b['category_id']}:{today:%Y-%m}:{level}",
+                                 f"🎯 {b['name']}: {b['spent']:.0f} з {b['amount']:.0f} ₴ ({b['pct']:.0f}%)"
+                                 + (" — ліміт перевищено" if level == 100 else f", до кінця місяця {bs['days_left']} дн.")))
         if profile is None or not profile.reminders_enabled or profile.mode == "off":
             profile = None
         ov = build_overview(db, fid, today) if profile is not None else {"meters": [], "providers": []}
@@ -1064,7 +1074,8 @@ def compute_reminders(db: Session, today: Optional[date] = None) -> list[dict]:
         out.append({"family_id": fid, "tg_ids": tg_ids, "keys": [k for k, _t in fresh],
                     "text": "🔔 Нагадування Bimi\n" + "\n".join(t for _k, t in fresh),
                     "tab": "readings" if any(k.startswith("readings:") for k, _t in fresh)
-                    else ("housing" if any(k.startswith("pay:") for k, _t in fresh) else "payments")})
+                    else "housing" if any(k.startswith(("pay:", "overdue:")) for k, _t in fresh)
+                    else "payments" if any(k.startswith("ob:") for k, _t in fresh) else "analytics"})
     return out
 
 

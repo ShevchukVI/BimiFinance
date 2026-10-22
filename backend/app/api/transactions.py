@@ -10,9 +10,26 @@ router = APIRouter(tags=["transactions"])
 
 
 @router.get("/families/{family_id}/transactions", response_model=list[schemas.TransactionOut])
-def get_transactions(family_id: int, skip: int = 0, limit: int = 100,
+def get_transactions(family_id: int, skip: int = 0, limit: int = 100, month: str | None = None,
+                     category_id: int | None = None, type: str | None = None,
                      _: None = Depends(require_family), db: Session = Depends(get_db)):
-    return crud.get_transactions(db, family_id, skip=skip, limit=limit)
+    if month is None and category_id is None and type is None:
+        return crud.get_transactions(db, family_id, skip=skip, limit=limit)
+    q = db.query(models.Transaction).filter(models.Transaction.family_id == family_id)
+    if month:
+        from app.services.analytics import parse_month
+        from app.services.housing import month_end
+        try:
+            m = parse_month(month)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid month")
+        q = q.filter(models.Transaction.date >= m, models.Transaction.date <= month_end(m))
+    if category_id is not None:
+        q = q.filter(models.Transaction.category_id == category_id)
+    if type:
+        q = q.filter(models.Transaction.type == type)
+    return (q.order_by(models.Transaction.date.desc(), models.Transaction.id.desc())
+            .offset(skip).limit(min(limit, 500)).all())
 
 
 @router.get("/families/{family_id}/pending", response_model=list[schemas.TransactionOut])

@@ -303,3 +303,13 @@ class Obligation(Base):
     remind = Column(Boolean, default=True, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     note = Column(String, default="")
+
+
+class Budget(Base):
+    """Monthly spending limit for one expense category (UAH)."""
+    __tablename__ = "budgets"
+    __table_args__ = (UniqueConstraint("family_id", "category_id", name="uq_budget_family_category"),)
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
+    amount = Column(Float, nullable=False)
