@@ -12,7 +12,7 @@ type Metric = `m${number}` | 'money' | 'power';
 const NOTE_KINDS = [{ value: 'note', label: '📝 Нотатка' }, { value: 'heating', label: '♨️ Опалення' }, { value: 'away', label: '🧳 Не було вдома' }, { value: 'repair', label: '🔧 Ремонт' }];
 const NOTE_ICON: Record<string, string> = { note: '📝', heating: '♨️', away: '🧳', repair: '🔧' };
 
-export default function StatsView({ familyId, overview }: { familyId: number; overview: Overview }) {
+export default function StatsView({ familyId, overview, onChanged }: { familyId: number; overview: Overview; onChanged?: () => void }) {
   const [months, setMonths] = useState(12);
   const [stats, setStats] = useState<Stats | null>(null);
   const [metric, setMetric] = useState<Metric>('money');
@@ -153,16 +153,16 @@ export default function StatsView({ familyId, overview }: { familyId: number; ov
             {notes.slice(0, allNotes ? 200 : 5).map(n => (
               <Row key={n.id} compact icon={NOTE_ICON[n.kind] || '📝'} title={n.text || '—'}
                 sub={`${dmy(n.date)}${n.end_date ? ` – ${dmy(n.end_date)}` : n.kind === 'heating' ? ' – досі' : ''}`}
-                end={<button className="link danger small" onClick={async () => {
+                end={<button className="btn btn--icon" aria-label="Видалити примітку" onClick={async () => {
                   if (!(await confirmAsync('Видалити примітку?'))) return;
-                  try { await housingApi.deleteNote(familyId, n.id); setNotes(x => (x || []).filter(y => y.id !== n.id)); } catch (e) { toast(errText(e), 'err'); }
+                  try { await housingApi.deleteNote(familyId, n.id); setNotes(x => (x || []).filter(y => y.id !== n.id)); if (n.kind === 'heating') onChanged?.(); } catch (e) { toast(errText(e), 'err'); }
                 }}>✕</button>} />
             ))}
             {notes.length > 5 && <Row compact title={<span className="link">{allNotes ? 'Згорнути' : `Показати всі (${notes.length})`}</span>} onClick={() => setAllNotes(v => !v)} />}
           </Card>
         )}
       </Section>
-      {noteOpen && <NoteSheet familyId={familyId} onClose={() => setNoteOpen(false)} onSaved={n => setNotes(x => [n, ...(x || [])])} />}
+      {noteOpen && <NoteSheet familyId={familyId} onClose={() => setNoteOpen(false)} onSaved={n => { setNotes(x => [n, ...(x || [])]); if (n.kind === 'heating') onChanged?.(); }} />}
     </>
   );
 }

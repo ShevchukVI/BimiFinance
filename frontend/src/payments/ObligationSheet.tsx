@@ -19,6 +19,7 @@ export default function ObligationSheet({ familyId, item, onClose, onEdit, onCha
   useEffect(() => { load(); }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const linkAll = async () => {
+    if (busy) return;
     setBusy(true);
     try { const r = await payApi.linkSuggested(familyId, item.id); haptic('success'); toast(`Пов'язано: ${r.linked}`); onChanged(); load(); }
     catch (e) { toast(errText(e), 'err'); }
@@ -65,7 +66,7 @@ export default function ObligationSheet({ familyId, item, onClose, onEdit, onCha
       {txs === null ? <Spinner /> : txs.length === 0 ? <div className="muted small center">Ще немає пов'язаних операцій</div> : (
         <Card flush>
           {txs.map(t => <Row key={t.id} icon="💳" title={money(t.amount, t.currency)} sub={`${dmy(t.date)} · ${t.title.replace('❓ ', '')}${t.user_name ? ` · ${t.user_name}` : ''}`}
-            end={<button className="link danger small" onClick={() => unlink(t)}>Відв'язати</button>} />)}
+            end={<button className="btn btn--icon" aria-label="Відв'язати" onClick={() => unlink(t)}>✕</button>} />)}
         </Card>
       )}
       {item.note && <div className="muted small">{item.note}</div>}

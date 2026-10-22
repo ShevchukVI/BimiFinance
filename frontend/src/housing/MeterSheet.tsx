@@ -51,7 +51,7 @@ export default function MeterSheet({ familyId, meter: m, onClose, onChanged }: {
           {items.map(r => (
             <Row key={r.id} compact title={<span className="tnum">{qty(r.value)}</span>}
               sub={[dmy(r.date), r.rate !== null ? `${r.rate} ${m.unit}/день` : null, r.note].filter(Boolean).join(' · ')}
-              end={<span className="hstack"><Badge>{SOURCE[r.source] || r.source}</Badge><button className="link danger small" onClick={() => del(r)}>✕</button></span>} />
+              end={<span className="hstack"><Badge>{SOURCE[r.source] || r.source}</Badge><button className="btn btn--icon" aria-label="Видалити показник" onClick={() => del(r)}>✕</button></span>} />
           ))}
         </Card>
       )}

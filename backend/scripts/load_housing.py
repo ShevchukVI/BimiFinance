@@ -108,7 +108,10 @@ def load(db, fid, data):
                         if hint.lower() in c.name.lower()), None)
         for k in ("first_due", "end_date"):
             o[k] = _d(o.get(k))
-        db.add(models.Obligation(family_id=fid, category_id=cat, **o))
+        ob = models.Obligation(family_id=fid, category_id=cat, **o)
+        if not ob.first_due:
+            ob.first_due = O.first_due(ob)
+        db.add(ob)
     db.flush()
     return {"providers": len([k for k in prov_ids if k != "__rent__"]) + (1 if rent else 0), "meters": len(meter_ids),
             "readings": len(data["readings"]), "bills": len(data["bills"]), "payments": len(data["payments"]),
@@ -145,9 +148,12 @@ def link_transactions(db, fid, data):
     for p in provs.values():
         if p.id not in want or not p.match_pattern:
             continue
+        existing = [x.date for x in db.query(models.UtilityPayment).filter(models.UtilityPayment.provider_id == p.id)]
         for tx in txs:
             if tx.id in used or tx.obligation_id or not O.text_matches(p.match_pattern, tx.title):
                 continue
+            if any(abs((tx.date - d).days) <= 5 for d in existing):
+                continue  # already imported (dates in sheets and bank differ by a few days)
             db.add(models.UtilityPayment(family_id=fid, provider_id=p.id, date=tx.date, amount=tx.amount,
                                          user_id=tx.user_id, note="З історії транзакцій", transaction_id=tx.id))
             used.add(tx.id)
@@ -169,10 +175,12 @@ def main(argv=None):
     try:
         if not db.get(models.Family, a.family_id):
             sys.exit(f"Family {a.family_id} not found")
-        has = db.query(models.UtilityProvider).filter(models.UtilityProvider.family_id == a.family_id).count()
+        has = (db.query(models.UtilityProvider).filter(models.UtilityProvider.family_id == a.family_id).count()
+               + db.query(models.HousingProfile).filter(models.HousingProfile.family_id == a.family_id).count()
+               + db.query(models.Obligation).filter(models.Obligation.family_id == a.family_id).count())
         if has and not a.replace:
-            sys.exit(f"Family {a.family_id} already has {has} housing providers — use --replace")
-        if has:
+            sys.exit(f"Family {a.family_id} already has housing data — use --replace")
+        if a.replace:
             wipe(db, a.family_id)
         print(load(db, a.family_id, data))
         if a.link_transactions:

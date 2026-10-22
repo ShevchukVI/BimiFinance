@@ -48,7 +48,7 @@ export default function PaymentSheet({ familyId, overview, providerId, accounts,
     p.balance.debt > 1 ? { label: `Борг ${money(p.balance.debt)}`, v: p.balance.debt } : null,
     !isFixedService(p.service) && p.balance.to_pay_now > p.balance.debt + 1 ? { label: `З набіглим ≈ ${Math.round(p.balance.to_pay_now)}`, v: Math.round(p.balance.to_pay_now) } : null,
     isFixedService(p.service) && p.balance.next_charge ? { label: `${money(p.balance.next_charge.amount, 'UAH', 0)}`, v: p.balance.next_charge.amount } : null,
-  ].filter(Boolean) as { label: string; v: number }[] : [];
+  ].filter(Boolean).filter((h, i, arr) => arr.findIndex(x => x!.v === h!.v) === i) as { label: string; v: number }[] : [];
 
   return (
     <Sheet title="Оплата" icon="💳" onClose={onClose}

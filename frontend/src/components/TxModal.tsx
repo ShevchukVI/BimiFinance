@@ -75,7 +75,7 @@ export default function TxModal({
   };
 
   return (
-    <Sheet title={editingTx ? 'Редагування' : 'Нова операція'} onClose={onClose}
+    <Sheet title={editingTx ? 'Редагування' : 'Нова операція'} onClose={onClose} confirmClose
       footer={<>
         <Button onClick={save} disabled={!valid} busy={busy}>{editingTx ? 'Зберегти' : 'Записати'}</Button>
         {editingTx && <Button variant="danger" onClick={remove} disabled={busy}>Видалити</Button>}

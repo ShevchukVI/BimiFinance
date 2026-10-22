@@ -29,6 +29,7 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
   }, [familyId]);
 
   const assign = async (tx: Transaction, catId: number) => {
+    if (savingId !== null) return;
     setSavingId(tx.id);
     try {
       const r = await api.put(`/transactions/${tx.id}`, { category_id: catId });

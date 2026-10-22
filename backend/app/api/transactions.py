@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app import crud, schemas
+from app import crud, models, schemas
 from app.core.deps import Actor, check_family_membership, get_actor, require_family
 from app.database import get_db
 from app.services.obligations import auto_link
@@ -67,7 +67,21 @@ def update_transaction(tx_id: int, payload: schemas.TransactionUpdate, actor: Ac
         raise HTTPException(status_code=404, detail="Transaction not found")
     if actor.kind == "user":
         check_family_membership(db, actor, tx.family_id)
-    return crud.update_transaction(db, tx_id, payload.model_dump(exclude_unset=True))
+    updated = crud.update_transaction(db, tx_id, payload.model_dump(exclude_unset=True))
+    _sync_housing_payments(db, updated)
+    return updated
+
+
+def _sync_housing_payments(db: Session, tx) -> None:
+    """A housing payment linked to a transaction mirrors its amount and date."""
+    if tx is None:
+        return
+    pays = db.query(models.UtilityPayment).filter(models.UtilityPayment.transaction_id == tx.id).all()
+    for p in pays:
+        p.amount, p.date = tx.amount, tx.date
+    if pays:
+        db.commit()
+        db.refresh(tx)
 
 
 @router.put("/transactions/by-mono/{mono_id}", response_model=schemas.TransactionOut)
@@ -78,7 +92,9 @@ def update_tx_by_mono(mono_id: str, payload: schemas.TransactionUpdate, actor: A
         raise HTTPException(status_code=404, detail="Transaction not found")
     if actor.kind == "user":
         check_family_membership(db, actor, tx.family_id)
-    return crud.update_tx_by_mono(db, mono_id, payload.model_dump(exclude_unset=True))
+    updated = crud.update_tx_by_mono(db, mono_id, payload.model_dump(exclude_unset=True))
+    _sync_housing_payments(db, updated)
+    return updated
 
 
 @router.delete("/transactions/{tx_id}")
@@ -88,4 +104,7 @@ def delete_transaction(tx_id: int, actor: Actor = Depends(get_actor), db: Sessio
         raise HTTPException(status_code=404, detail="Transaction not found")
     if actor.kind == "user":
         check_family_membership(db, actor, tx.family_id)
+    # the housing payment *is* this transaction — remove it too, otherwise it keeps counting
+    db.query(models.UtilityPayment).filter(models.UtilityPayment.transaction_id == tx_id).delete(synchronize_session=False)
+    db.commit()
     crud.delete_transaction(db, tx_id)

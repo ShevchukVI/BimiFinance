@@ -27,6 +27,7 @@ export default function Onboarding({ familyId, onDone }: { familyId: number; onD
   useEffect(() => { housingApi.templates().then(setTemplates).catch(() => { /**/ }); }, []);
 
   const submit = async (m: HousingMode = mode) => {
+    if (busy) return;
     setBusy(true);
     try {
       const body: Record<string, unknown> = { mode: m, templates: m === 'off' ? [] : picked.filter(k => k !== 'rent' && k !== 'mortgage') };

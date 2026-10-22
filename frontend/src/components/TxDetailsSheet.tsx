@@ -20,7 +20,7 @@ export default function TxDetailsSheet({ tx, categories, familyId, onClose, onEd
     <Sheet title="Операція" onClose={onClose}
       footer={<div className="btn-row">
         <Button variant="secondary" onClick={() => onCopy(`${tx.title} — ${money(tx.amount, tx.currency)}`)}>Копіювати</Button>
-        <Button onClick={onEdit}>Редагувати</Button>
+        {tx.type !== 'Переказ' && !tx.jar_id && <Button onClick={onEdit}>Редагувати</Button>}
       </div>}>
       <div className="center" style={{ padding: '4px 0 8px' }}>
         <div style={{ fontSize: 40 }}>{tx.type === 'Переказ' ? '↔️' : catIcon(cat)}</div>

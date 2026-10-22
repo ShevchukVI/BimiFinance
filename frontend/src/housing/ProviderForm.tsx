@@ -30,6 +30,7 @@ export default function ProviderForm({ familyId, provider, meters, onClose, onSa
   const [ms, setMs] = useState<MeterDraft[]>(meters.map(m => ({ id: m.id, name: m.name, unit: m.unit, zone: m.zone || '', tariff: m.tariff ? String(m.tariff) : '' })));
   const [more, setMore] = useState(!!provider);
   const [busy, setBusy] = useState(false);
+  const [createdId, setCreatedId] = useState<number | null>(null);  // retry after a partial failure updates, never duplicates
   const isRent = service === 'rent' || service === 'mortgage';
 
   const pickService = (s: string) => {
@@ -50,15 +51,20 @@ export default function ProviderForm({ familyId, provider, meters, onClose, onSa
       account_number: account.trim(), pay_url: payUrl.trim(), start_date: start || null, opening_balance: parseNum(opening) || 0, note: note.trim(), match_pattern: pattern.trim(),
     };
     try {
-      const saved = provider ? await housingApi.updateProvider(familyId, provider.id, body) : await housingApi.createProvider(familyId, body);
+      const id = provider?.id ?? createdId;
+      const saved = id ? await housingApi.updateProvider(familyId, id, body) : await housingApi.createProvider(familyId, body);
+      if (!id) setCreatedId(saved.id);
       if (billing === 'metered') {
+        const done: MeterDraft[] = [];
         for (const m of ms) {
           const mb = { name: m.name.trim() || name, unit: m.unit || UNITS[service] || 'од.', zone: m.zone || null, tariff: parseNum(m.tariff) || 0,
             utility_type: service === 'electricity' || service === 'gas' || service === 'water' || service === 'heating' ? service : 'other', provider_id: saved.id };
           if (m.id && m.remove) await housingApi.deleteMeter(familyId, m.id);
           else if (m.id) await housingApi.updateMeter(familyId, m.id, mb);
-          else if (!m.remove) await housingApi.createMeter(familyId, mb);
+          else if (!m.remove) { const r = await housingApi.createMeter(familyId, mb); done.push({ ...m, id: r.id }); continue; }
+          if (!m.remove) done.push(m);
         }
+        setMs(done);
       }
       haptic('success');
       toast(provider ? 'Збережено' : 'Послугу додано');
@@ -74,7 +80,7 @@ export default function ProviderForm({ familyId, provider, meters, onClose, onSa
   };
 
   return (
-    <Sheet title={provider ? 'Налаштування послуги' : 'Нова послуга'} icon={icon} onClose={onClose}
+    <Sheet title={provider ? 'Налаштування послуги' : 'Нова послуга'} icon={icon} onClose={onClose} confirmClose
       footer={<>
         <Button onClick={save} disabled={!name.trim()} busy={busy}>Зберегти</Button>
         {provider && <Button variant="danger" onClick={archive}>Прибрати послугу</Button>}
@@ -93,7 +99,7 @@ export default function ProviderForm({ familyId, provider, meters, onClose, onSa
       )}
       <div className="grid2">
         {(billing === 'fixed' || isRent) && <Field label={isRent ? 'Сума на місяць' : 'Щомісяця'}><input className="input tnum" inputMode="decimal" placeholder="0 ₴" value={fixed} onChange={e => setFixed(e.target.value)} /></Field>}
-        <Field label="Сплатити до (число)"><input className="input tnum" inputMode="numeric" placeholder="20" value={dueDay} onChange={e => setDueDay(e.target.value.replace(/\D/g, '').slice(0, 2))} /></Field>
+        <Field label="Сплатити до (число)"><input className="input tnum" inputMode="numeric" placeholder="20" value={dueDay} onChange={e => setDueDay(String(Math.min(Number(e.target.value.replace(/\D/g, '').slice(0, 2)) || 0, 31) || ''))} /></Field>
       </div>
 
       {billing === 'metered' && (

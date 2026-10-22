@@ -9,7 +9,7 @@ import { isFixedService, SERVICE_LABELS } from './types';
 
 export default function ProviderSheet({ familyId, provider: p, meters, onClose, onPay, onBill, onEdit, onChanged, onLoose }: {
   familyId: number; provider: ProviderOverview; meters: MeterSummary[]; onClose: () => void; onPay: () => void;
-  onBill: (b?: Bill, period?: string) => void; onEdit: () => void; onChanged: () => void; onLoose: () => void;
+  onBill: (b?: Bill, period?: string) => void; onEdit: () => void; onChanged: (withTx?: boolean) => void; onLoose: () => void;
 }) {
   const [bills, setBills] = useState<Bill[] | null>(null);
   const [payments, setPayments] = useState<Payment[] | null>(null);
@@ -28,7 +28,7 @@ export default function ProviderSheet({ familyId, provider: p, meters, onClose, 
   const delPayment = async (pay: Payment) => {
     if (!(await confirmAsync(`Видалити оплату ${money(pay.amount)} від ${day(pay.date)}?`))) return;
     const withTx = pay.transaction_id ? await confirmAsync('Видалити і пов\'язану витрату у фінансах?') : false;
-    try { await housingApi.deletePayment(familyId, pay.id, withTx); toast('Оплату видалено'); load(); onChanged(); }
+    try { await housingApi.deletePayment(familyId, pay.id, withTx); toast('Оплату видалено'); load(); onChanged(withTx); }
     catch (e) { toast(errText(e), 'err'); }
   };
 
@@ -95,7 +95,7 @@ export default function ProviderSheet({ familyId, provider: p, meters, onClose, 
         payments.length === 0 ? <div className="muted small center">Оплат ще немає</div> : (
           <Card flush>
             {payments.map(x => <Row key={x.id} icon="💳" title={money(x.amount)} sub={[day(x.date), x.user_name, x.note].filter(Boolean).join(' · ')}
-              end={<button className="link danger small" onClick={() => delPayment(x)}>Видалити</button>} />)}
+              end={<button className="btn btn--icon" aria-label="Видалити оплату" onClick={() => delPayment(x)}>🗑</button>} />)}
           </Card>
         )
       )}

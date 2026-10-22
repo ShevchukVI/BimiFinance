@@ -199,12 +199,12 @@ def build_overview(db: Session, fid: int, today: Optional[date] = None) -> dict:
 
         # alerts: due soon / overdue
         if p.service in H.FIXED_SERVICES:
-            overdue = [h for h in bal.get("history", []) if h["status"] == "overdue" and _d(h["due"]) < today]
+            since = _d(bal.get("overdue_since"))
             nc = bal.get("next_charge")
             ncd = _d(nc["due"]) if nc else None
-            if overdue and (bal.get("debt") or 0) > 1:
+            if since and since < today and (bal.get("debt") or 0) > 1:
                 alerts.append({"level": "warn", "kind": "pay", "provider_id": p.id,
-                               "text": f"{p.name}: прострочено {bal['debt']:.0f} ₴ (з {_d(overdue[0]['due']):%d.%m})"})
+                               "text": f"{p.name}: прострочено {bal['debt']:.0f} ₴ (з {since:%d.%m.%Y})"})
             elif ncd and 0 <= (ncd - today).days <= 5:
                 alerts.append({"level": "info", "kind": "pay", "provider_id": p.id,
                                "text": f"{p.name}: {nc['amount']:.0f} ₴ до {ncd:%d.%m}"})
@@ -467,7 +467,7 @@ def delete_provider(family_id: int, provider_id: int, _: None = Depends(require_
                     db: Session = Depends(get_db)):
     """Archive if it has history (bills/payments), delete if empty."""
     p = _provider(db, family_id, provider_id)
-    has_history = bool(p.bills) or bool(p.payments)
+    has_history = bool(p.bills) or bool(p.payments) or any(m.readings for m in p.meters)
     if has_history:
         p.is_active = False
         for m in p.meters:
@@ -511,7 +511,8 @@ def update_meter(family_id: int, meter_id: int, payload: S.MeterIn, _: None = De
 @router.delete("/families/{family_id}/meters/{meter_id}")
 def delete_meter(family_id: int, meter_id: int, _: None = Depends(require_family), db: Session = Depends(get_db)):
     m = _meter(db, family_id, meter_id)
-    if m.readings:
+    in_bills = db.query(models.UtilityBillLine).filter(models.UtilityBillLine.meter_id == m.id).first() is not None
+    if m.readings or in_bills:
         m.is_active = False
     else:
         db.delete(m)
@@ -546,7 +547,7 @@ def add_readings(family_id: int, payload: S.ReadingsIn, actor: Actor = Depends(g
     saved = []
     for it in payload.items:
         m = _meter(db, family_id, it.meter_id)
-        prev = [r for r in m.readings if r.date <= d]
+        prev = [r for r in m.readings if r.date < d]  # same-day value may be corrected
         nxt = [r for r in m.readings if r.date > d]
         if not payload.allow_decrease:
             if prev and it.value < max(r.value for r in prev) - 1e-9:
@@ -650,9 +651,12 @@ def _save_bill(db: Session, fid: int, bill: models.UtilityBill, payload: S.BillI
         for ln in lines:
             if ln.meter_id and ln.curr_value is not None:
                 m = _meter(db, fid, ln.meter_id)
-                if not any(r.date == rd for r in m.readings):
+                same = next((r for r in m.readings if r.date == rd), None)
+                if same is None:
                     db.add(models.UtilityReading(meter_id=m.id, date=rd, value=ln.curr_value, source="bill",
                                                  note="З платіжки", user_id=user_id))
+                elif same.source == "bill":
+                    same.value = ln.curr_value  # bill corrected → its reading follows
                 pd = bill.period
                 if ln.prev_value is not None and not m.readings and not any(r.date == pd for r in m.readings):
                     db.add(models.UtilityReading(meter_id=m.id, date=pd, value=ln.prev_value, source="bill",
@@ -672,6 +676,7 @@ def _save_bill(db: Session, fid: int, bill: models.UtilityBill, payload: S.BillI
 def create_bill(family_id: int, payload: S.BillIn, actor: Actor = Depends(get_actor),
                 _: None = Depends(require_family), db: Session = Depends(get_db)):
     per = _period(payload.period)
+    _provider(db, family_id, payload.provider_id)  # family check before revealing duplicates
     if db.query(models.UtilityBill).filter(models.UtilityBill.provider_id == payload.provider_id,
                                            models.UtilityBill.period == per).first():
         raise HTTPException(409, "Платіжка за цей місяць уже є — відредагуйте її")
@@ -773,6 +778,9 @@ def delete_payment(family_id: int, payment_id: int, delete_transaction: bool = F
 
 # ---------------------------------------------------------------- notes & heating
 
+NOTE_KINDS = {"note", "heating", "away", "repair"}
+
+
 @router.get("/families/{family_id}/notes")
 def list_notes(family_id: int, _: None = Depends(require_family), db: Session = Depends(get_db)):
     rows = (db.query(models.HousingNote).filter(models.HousingNote.family_id == family_id)
@@ -785,6 +793,8 @@ def create_note(family_id: int, payload: S.NoteIn, actor: Actor = Depends(get_ac
                 _: None = Depends(require_family), db: Session = Depends(get_db)):
     if payload.provider_id:
         _provider(db, family_id, payload.provider_id)
+    if (payload.kind or "note") not in NOTE_KINDS:
+        raise HTTPException(400, "Невірний тип примітки")
     n = models.HousingNote(family_id=family_id, date=_d(payload.date, H.today_kyiv()), end_date=_d(payload.end_date),
                            kind=payload.kind or "note", text=payload.text.strip(), provider_id=payload.provider_id,
                            user_id=_actor_user_id(db, actor, family_id))
@@ -800,6 +810,10 @@ def update_note(family_id: int, note_id: int, payload: S.NoteIn, _: None = Depen
                                             models.HousingNote.family_id == family_id).first()
     if not n:
         raise HTTPException(404, "Примітку не знайдено")
+    if payload.provider_id:
+        _provider(db, family_id, payload.provider_id)
+    if payload.kind not in NOTE_KINDS:
+        raise HTTPException(400, "Невірний тип примітки")
     n.date = _d(payload.date, n.date)
     n.end_date = _d(payload.end_date)
     n.kind, n.text, n.provider_id = payload.kind, payload.text.strip(), payload.provider_id
@@ -1018,6 +1032,11 @@ def compute_reminders(db: Session, today: Optional[date] = None) -> list[dict]:
                              "📸 Час внести показники лічильників — це 1 хвилина в «Житлі»."))
         for p in ov["providers"]:
             bal = p["balance"]
+            since = _d(bal.get("overdue_since"))
+            if p["service"] in H.FIXED_SERVICES and since and since < today and (bal.get("debt") or 0) > 1 \
+                    and (today - since).days % 7 == 1:
+                msgs.append((f"overdue:{p['id']}:{since}:{(today - since).days // 7}",
+                             f"⚠️ {p['name']}: прострочено {bal['debt']:.0f} ₴ (з {since:%d.%m})"))
             due = _d(bal.get("next_due"))
             if due is None:
                 continue
@@ -1059,14 +1078,12 @@ def system_reminders_ack(payload: S.ReminderAck, _: None = Depends(require_inter
                          db: Session = Depends(get_db)):
     today = H.today_kyiv()
     n = 0
-    for it in payload.items:
-        fid, key = it.get("family_id"), it.get("key")
-        if not fid or not key:
-            continue
+    pairs = {(it.get("family_id"), str(it.get("key") or "")[:120]) for it in payload.items}
+    for fid, key in sorted(p for p in pairs if p[0] and p[1]):
         exists = db.query(models.HousingReminderLog).filter(models.HousingReminderLog.family_id == fid,
                                                             models.HousingReminderLog.key == key).first()
         if not exists:
-            db.add(models.HousingReminderLog(family_id=fid, key=str(key)[:120], sent_on=today))
+            db.add(models.HousingReminderLog(family_id=fid, key=key, sent_on=today))
             n += 1
     db.commit()
     return {"acked": n}

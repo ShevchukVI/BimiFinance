@@ -31,6 +31,7 @@ export default function ObligationForm({ familyId, item, draft, categories, onCl
   const [remind, setRemind] = useState(src ? src.remind : true);
   const [note, setNote] = useState(src?.note || '');
   const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<Obligation | null>(null);
   const credit = kind !== 'subscription';
   const num = parseNum(amount);
   const valid = name.trim() && Number.isFinite(num) && num > 0;
@@ -48,11 +49,10 @@ export default function ObligationForm({ familyId, item, draft, categories, onCl
     };
     try {
       let saved: Obligation;
-      if (src) saved = await payApi.update(familyId, src.id, body);
-      else {
-        saved = await payApi.create(familyId, { ...body, link_suggested: true });
-        if (draft?.txId) await payApi.setLink(familyId, draft.txId, 'obligation', saved.id);
-      }
+      const existing = src || created;
+      if (existing) saved = await payApi.update(familyId, existing.id, body);
+      else { saved = await payApi.create(familyId, { ...body, link_suggested: true }); setCreated(saved); }
+      if (!src && draft?.txId) await payApi.setLink(familyId, draft.txId, 'obligation', saved.id);
       haptic('success');
       toast(src ? 'Збережено' : `${KIND_LABEL[kind]} додано`);
       onSaved(saved);
@@ -67,7 +67,7 @@ export default function ObligationForm({ familyId, item, draft, categories, onCl
   };
 
   return (
-    <Sheet title={src ? src.name : 'Новий платіж'} icon={icon} onClose={onClose}
+    <Sheet title={src ? src.name : 'Новий платіж'} icon={icon} onClose={onClose} confirmClose
       footer={<>
         <Button onClick={save} disabled={!valid} busy={busy}>Зберегти</Button>
         {src && <Button variant="danger" onClick={archive}>{src.state.status === 'finished' ? 'В архів' : 'Прибрати'}</Button>}
@@ -80,7 +80,7 @@ export default function ObligationForm({ familyId, item, draft, categories, onCl
       </div>
       <div className="grid2">
         <Field label={credit ? 'Щомісячний платіж' : 'Ціна'}><input className="input tnum" inputMode="decimal" placeholder="0 ₴" value={amount} onChange={e => setAmount(e.target.value)} /></Field>
-        <Field label="Число списання"><input className="input tnum" inputMode="numeric" placeholder="13" value={dueDay} onChange={e => setDueDay(e.target.value.replace(/\D/g, '').slice(0, 2))} /></Field>
+        <Field label="Число списання"><input className="input tnum" inputMode="numeric" placeholder="13" value={dueDay} onChange={e => setDueDay(String(Math.min(Number(e.target.value.replace(/\D/g, '').slice(0, 2)) || 0, 31) || ''))} /></Field>
       </div>
       {credit ? (
         <>

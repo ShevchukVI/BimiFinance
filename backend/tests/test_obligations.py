@@ -139,3 +139,68 @@ def test_svitlobot_channel_validated_on_save(seeded, monkeypatch):
     monkeypatch.setattr(svitlobot, "fetch_page", lambda ch, before=None, timeout=10: "<html>no posts</html>")
     r = client.put(f"/housing/families/{fam.id}/profile", headers=_hdr(fam.id), json={"svitlobot_channel": "some_channel"})
     assert r.status_code == 400 and "світлобота" in r.json()["detail"]
+
+
+def test_linked_housing_payment_follows_transaction_edit_and_delete(seeded, db):
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    client.post(f"/housing/families/{fam.id}/setup", headers=_hdr(fam.id), json={"mode": "own", "templates": ["electricity"]})
+    prov = db.query(models.UtilityProvider).filter_by(family_id=fam.id, service="electricity").first()
+    tx = make_tx(db, fam.id, admin.id, cats["Інше"].id, 400, "Витрати", title="Електроенергія")
+    client.post(f"/families/{fam.id}/transactions/{tx.id}/link", headers=_hdr(fam.id), json={"type": "provider", "id": prov.id})
+    client.put(f"/transactions/{tx.id}", headers=BOT_HEADERS, json={"amount": 450, "date": "2026-10-03"})
+    pays = client.get(f"/housing/families/{fam.id}/payments", headers=_hdr(fam.id)).json()
+    assert pays[0]["amount"] == 450 and pays[0]["date"] == "2026-10-03"
+    assert client.delete(f"/transactions/{tx.id}", headers=BOT_HEADERS).status_code == 200
+    assert client.get(f"/housing/families/{fam.id}/payments", headers=_hdr(fam.id)).json() == []
+
+
+# ---------------------------------------------------------------- regressions from the review
+
+def test_rent_overdue_visible_with_long_history():
+    from app.services import housing as H
+    rent = NS(service="rent", billing="fixed", fixed_amount=3000.0, due_day=1, start_date=date(2023, 1, 1), opening_balance=0.0)
+    pays = [NS(date=date(2022, 12, 28) + timedelta(days=30 * i), amount=3000) for i in range(40)]  # through ~2026-04
+    bal = H.provider_balance(rent, [], [], pays, [], today=date(2026, 10, 22))
+    assert bal["debt"] > 0 and bal["overdue_months"] >= 1 and bal["overdue_since"].startswith("2026")
+
+
+def test_installment_anchor_persisted_on_create(seeded):
+    fam = seeded["family"]
+    ob = client.post(f"/families/{fam.id}/obligations", headers=_hdr(fam.id), json={
+        "kind": "installment", "name": "Пилосос", "amount": 1000, "due_day": 15, "payments_total": 10}).json()
+    assert ob["first_due"] is not None  # schedule no longer drifts with «today»
+
+
+def test_subscription_charged_a_day_early_counts_for_the_cycle():
+    ob = _ob(kind="subscription", amount=100, due_day=1, first_due=None, payments_total=None, match_pattern="X")
+    st = O.status(ob, [_t(date(2026, 10, 31), 100, "X")], today=date(2026, 11, 3))
+    assert st["status"] == "charged" and st["next_due"] == "2026-12-01"
+
+
+def test_same_day_reading_can_be_corrected_down(seeded):
+    fam = seeded["family"]
+    ov = client.post(f"/housing/families/{fam.id}/setup", headers=_hdr(fam.id), json={"mode": "own", "templates": ["gas"]}).json()
+    gas = ov["meters"][0]["id"]
+    d = str(date.today())
+    client.post(f"/housing/families/{fam.id}/readings", headers=_hdr(fam.id), json={"date": d, "items": [{"meter_id": gas, "value": 12450}]})
+    r = client.post(f"/housing/families/{fam.id}/readings", headers=_hdr(fam.id), json={"date": d, "items": [{"meter_id": gas, "value": 1245}]})
+    assert r.status_code == 200
+
+
+def test_reminder_ack_dedupes_within_payload(seeded):
+    fam = seeded["family"]
+    r = client.post("/system/housing/reminders/ack", headers=BOT_HEADERS,
+                    json={"items": [{"family_id": fam.id, "key": "k1"}, {"family_id": fam.id, "key": "k1"}]})
+    assert r.status_code == 200 and r.json()["acked"] == 1
+
+
+def test_bill_edit_updates_its_reading(seeded):
+    fam = seeded["family"]
+    ov = client.post(f"/housing/families/{fam.id}/setup", headers=_hdr(fam.id), json={"mode": "own", "templates": ["gas"]}).json()
+    prov, gas = ov["providers"][0]["id"], ov["meters"][0]["id"]
+    body = {"provider_id": prov, "period": "2026-08", "lines": [{"meter_id": gas, "label": "Газ", "prev_value": 100, "curr_value": 1500, "tariff": 8}]}
+    b = client.post(f"/housing/families/{fam.id}/bills", headers=_hdr(fam.id), json=body).json()
+    body["lines"][0]["curr_value"] = 150
+    client.put(f"/housing/families/{fam.id}/bills/{b['id']}", headers=_hdr(fam.id), json=body)
+    hist = client.get(f"/housing/families/{fam.id}/meters/{gas}/readings", headers=_hdr(fam.id)).json()
+    assert [h["value"] for h in hist if h["date"] == "2026-09-01"] == [150]

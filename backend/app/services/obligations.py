@@ -88,7 +88,8 @@ def status(ob, linked: list, today: Optional[date] = None) -> dict:
         return res
     if last is not None:
         nxt = _at_day(add_months(last.date.replace(day=1), step), ob.due_day or last.date.day)
-        if nxt <= last.date:
+        if nxt <= last.date or (nxt - last.date).days <= 5:
+            # charged on/after the due day, or a few days early (31st for the 1st) → that cycle is paid
             nxt = _at_day(add_months(nxt.replace(day=1), step), ob.due_day or last.date.day)
         if nxt < today - timedelta(days=10):
             res["status"] = "stale"  # no charge seen for a cycle — cancelled or paid elsewhere
@@ -223,13 +224,21 @@ def auto_link(db: Session, tx) -> Optional[str]:
         provs = db.query(models.UtilityProvider).filter(models.UtilityProvider.family_id == tx.family_id,
                                                         models.UtilityProvider.match_pattern != "").all()
         p = provider_for(provs, tx)
-        if p is not None and tx.id not in linked_tx_ids(db, tx.family_id):
+        if p is not None and tx.id not in linked_tx_ids(db, tx.family_id) and not _has_manual_payment(db, p, tx):
             link_provider(db, tx, p, note="Автоматично з банку")
             db.commit()
             return f"provider:{p.id}"
     except Exception:  # linking is a convenience — never break transaction creation
         db.rollback()
     return None
+
+
+def _has_manual_payment(db: Session, provider, tx) -> bool:
+    """Payment already recorded by hand (same amount ±1 ₴, ±3 days) — don't count it twice."""
+    return db.query(models.UtilityPayment).filter(
+        models.UtilityPayment.provider_id == provider.id,
+        models.UtilityPayment.date.between(tx.date - timedelta(days=3), tx.date + timedelta(days=3)),
+        models.UtilityPayment.amount.between(tx.amount - 1, tx.amount + 1)).first() is not None
 
 
 def suggestions(db: Session, family_id: int, days: int = 180, today: Optional[date] = None) -> dict:

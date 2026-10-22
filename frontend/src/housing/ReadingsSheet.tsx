@@ -45,7 +45,7 @@ export default function ReadingsSheet({ familyId, meters, onClose, onSaved }: {
   };
 
   return (
-    <Sheet title="Показники лічильників" icon="📸" onClose={onClose}
+    <Sheet title="Показники лічильників" icon="📸" onClose={onClose} confirmClose
       footer={<Button onClick={save} disabled={!valid} busy={busy}>Зберегти{filled.length ? ` · ${filled.length}` : ''}</Button>}>
       {rows.map(({ m, raw, delta, error, big }, i) => (
         <Field key={m.id} label={<span className="spread"><span>{m.name}</span>

@@ -1,6 +1,6 @@
 // UI kit: every screen is built from these, styles live in styles/theme.css.
 import { ReactNode, useEffect, useRef } from 'react';
-import { haptic, pushBack } from './tg';
+import { confirmAsync, haptic, pushBack } from './tg';
 
 type BtnVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
@@ -148,11 +148,19 @@ export function Spinner({ label }: { label?: string }) {
 }
 
 /** Bottom sheet: backdrop tap, Escape and Telegram «Назад» close it. */
-export function Sheet({ title, icon, onClose, children, footer, card }: {
+export function Sheet({ title, icon, onClose, children, footer, card, confirmClose }: {
   title: ReactNode; icon?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; card?: boolean;
+  confirmClose?: boolean; // form sheet: ask before dropping typed data (backdrop / ✕ / «Назад»)
 }) {
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+  const dirty = useRef(false);
+  const guardRef = useRef(confirmClose);
+  guardRef.current = confirmClose;
+  const requestClose = async () => {
+    if (guardRef.current && dirty.current && !(await confirmAsync('Закрити без збереження?'))) return;
+    onClose();
+  };
+  const closeRef = useRef(requestClose);
+  closeRef.current = requestClose;
   useEffect(() => {
     const pop = pushBack(() => closeRef.current());
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current(); };
@@ -162,13 +170,13 @@ export function Sheet({ title, icon, onClose, children, footer, card }: {
     return () => { pop(); window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
   }, []);
   return (
-    <div className="sheet-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={`sheet ${card ? 'sheet--card' : ''}`} role="dialog" aria-modal="true">
+    <div className="sheet-backdrop" onClick={e => { if (e.target === e.currentTarget) requestClose(); }}>
+      <div className={`sheet ${card ? 'sheet--card' : ''}`} role="dialog" aria-modal="true" onInput={() => { dirty.current = true; }}>
         <div className="sheet__grip" />
         <div className="sheet__head">
           {icon && <span style={{ fontSize: 22 }}>{icon}</span>}
           <div className="sheet__title">{title}</div>
-          <button className="sheet__close" aria-label="Закрити" onClick={onClose}>✕</button>
+          <button className="sheet__close" aria-label="Закрити" onClick={requestClose}>✕</button>
         </div>
         <div className="stack">{children}</div>
         {footer && <div className="stack-s" style={{ marginTop: 16 }}>{footer}</div>}

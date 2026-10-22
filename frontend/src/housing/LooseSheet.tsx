@@ -12,6 +12,7 @@ export default function LooseSheet({ familyId, overview, providerId, onClose, on
   familyId: number; overview: Overview; providerId?: number; onClose: () => void; onChanged: () => void;
 }) {
   const [items, setItems] = useState<{ tx: TxBrief; guess: number | null }[] | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
   const load = async () => {
     try {
       const r = await payApi.looseHousing(familyId);
@@ -23,8 +24,11 @@ export default function LooseSheet({ familyId, overview, providerId, onClose, on
   useEffect(() => { load(); }, [familyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const link = async (txId: number, pid: number) => {
+    if (busy !== null) return;
+    setBusy(txId);
     try { await payApi.setLink(familyId, txId, 'provider', pid); haptic('success'); toast('Записано як оплату'); setItems(x => (x || []).filter(i => i.tx.id !== txId)); onChanged(); }
     catch (e) { toast(errText(e), 'err'); }
+    setBusy(null);
   };
   const provs = overview.providers;
 

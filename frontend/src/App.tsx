@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import api, { setAuthToken } from './api';
 import { toast } from './toast';
 import { copyText, haptic, startParam } from './tg';
@@ -61,10 +61,13 @@ export default function App() {
   const [noteText, setNoteText] = useState('');
   const [splitBy, setSplitBy] = useState(1);
 
+  const famRef = useRef<number | null>(null);  // ignore late responses of a previously active family
+  const loadingMore = useRef(false);
   const copyToClipboard = (text: string) => { copyText(text); haptic('success'); toast('Скопійовано'); };
 
   // Усі family-scoped дані (і при перемиканні сім'ї). «Житло» — не блокує решту.
   const loadFamilyData = useCallback(async (fId: number) => {
+    famRef.current = fId;
     const [txRes, catRes, statsRes, usersRes, notesRes, jarsRes, famRes, bankRes] = await Promise.all([
       api.get(`/families/${fId}/transactions?skip=0&limit=${LIMIT}`),
       api.get(`/families/${fId}/categories`),
@@ -88,8 +91,9 @@ export default function App() {
     const myFam = famRes.data.find((f: any) => f.id === fId) || famRes.data[0];
     if (myFam) { setFamilyName(myFam.name); setInviteCode(myFam.invite_code); }
     setHousing(null);
-    housingApi.overview(fId).then(setHousing).catch(() => { /* housing is optional */ });
-    payApi.upcoming(fId, 10).then(setUpcoming).catch(() => setUpcoming([]));
+    setUpcoming([]);
+    housingApi.overview(fId).then(o => { if (famRef.current === fId) setHousing(o); }).catch(() => { /* housing is optional */ });
+    payApi.upcoming(fId, 10).then(u => { if (famRef.current === fId) setUpcoming(u); }).catch(() => { /**/ });
   }, []);
 
   useEffect(() => {
@@ -132,38 +136,44 @@ export default function App() {
   };
 
   const loadMoreTransactions = async () => {
-    if (!familyId) return;
+    if (!familyId || loadingMore.current) return;
+    loadingMore.current = true;
     const next = skip + LIMIT;
     try {
       const r = await api.get(`/families/${familyId}/transactions?skip=${next}&limit=${LIMIT}`);
       if (r.data.length < LIMIT) setHasMore(false);
-      setTransactions(prev => [...prev, ...r.data]);
+      setTransactions(prev => { const ids = new Set(prev.map(t => t.id)); return [...prev, ...r.data.filter((t: Transaction) => !ids.has(t.id))]; });
       setSkip(next);
     } catch { toast('Помилка завантаження', 'err'); }
+    loadingMore.current = false;
   };
 
   const sortTx = (list: Transaction[]) => [...list].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   const onTxSaved = (tx: Transaction) => { setTransactions(prev => sortTx([tx, ...prev.filter(t => t.id !== tx.id)])); refreshStats(); };
   const onTxDeleted = (id: number) => { setTransactions(prev => prev.filter(t => t.id !== id)); refreshStats(); };
 
-  // Після категоризації в Inbox: оновлюємо список і відкриваємо транзакцію для опису/виправлення.
+  // Після категоризації в Inbox лишаємось у ньому (наступна операція — одним дотиком), фон оновлюємо.
   const handleCategorized = async (tx: Transaction) => {
-    setIsInboxOpen(false);
     setTransactions(prev => sortTx([tx, ...prev.filter(t => t.id !== tx.id)]));
     refreshStats();
-    refreshTransactions();
-    setEditingTx(tx);
   };
 
   const switchFamily = async (newFamilyId: number) => {
-    setFamilyId(newFamilyId);
     setLoading(true);
+    setPaymentsDraft(null);
+    setMoreScreen(s => ({ screen: null, key: s.key + 1 }));
     try {
       await loadFamilyData(newFamilyId);
+      setFamilyId(newFamilyId);
       setFamilies(prev => prev.map(f => ({ ...f, is_active: f.family_id === newFamilyId })));
       const active = (await api.get('/users/me/families')).data.find((f: FamilyMembership) => f.family_id === newFamilyId);
       if (active && me) setMe({ ...me, role: active.role, current_active_family_id: newFamilyId });
-    } catch { toast('Помилка завантаження сім\'ї', 'err'); }
+    } catch {
+      // the server already switched the active family — never keep writing into the old one
+      toast('Помилка завантаження сім\'ї', 'err');
+      window.location.reload();
+      return;
+    }
     setLoading(false);
   };
 
@@ -203,7 +213,8 @@ export default function App() {
 
   const openMore = (screen: MoreScreen) => { setMoreScreen(s => ({ screen, key: s.key + 1 })); setActiveTab('more'); };
   const openJars = () => openMore('jars');
-  const refreshUpcoming = () => { if (familyId) payApi.upcoming(familyId, 10).then(setUpcoming).catch(() => { /**/ }); };
+  const refreshUpcoming = () => { const f = familyId; if (f) payApi.upcoming(f, 10).then(u => { if (famRef.current === f) setUpcoming(u); }).catch(() => { /**/ }); };
+  const setHousingAndUpcoming = (o: Overview) => { setHousing(o); refreshUpcoming(); };
   const openPayments = (draft: ObDraft | null = null) => { setPaymentsDraft(draft); openMore('payments'); };
   const accounts = ['Готівка', ...(bankBalances.find(b => b.user_id === me?.id)?.accounts.map(a => a.name) || [])];
   const housingOff = housing?.profile?.mode === 'off';
@@ -212,7 +223,7 @@ export default function App() {
   if (loading) return <div className="screen-center"><Spinner label="Завантаження…" /></div>;
 
   return (
-    <div className="app">
+    <div className={`app ${activeTab === 'transactions' ? 'app--fab' : ''}`}>
       <ToastHost />
       {activeTab === 'home' && (
         <div className="topbar">
@@ -226,7 +237,7 @@ export default function App() {
 
       {activeTab === 'home' && (
         <HomePage stats={stats} transactions={transactions} categories={categories} bankBalances={bankBalances} jars={jars} housing={housing}
-          upcoming={upcoming} onUpcoming={u => (u && u.kind === 'housing' ? setActiveTab('housing') : openPayments())}
+          upcoming={upcoming} onUpcoming={u => { if (u && u.kind === 'housing') { setHousingAction({ pay: u.id }); setActiveTab('housing'); } else openPayments(); }}
           onOpenInbox={() => setIsInboxOpen(true)} onSeeAll={() => setActiveTab('transactions')}
           onAdd={t => setAddType(t || 'Витрати')} onView={setViewingTx}
           onHousing={() => setActiveTab('housing')} onReadings={() => { setHousingAction('readings'); setActiveTab('housing'); }}
@@ -237,7 +248,7 @@ export default function App() {
           onLoadMore={loadMoreTransactions} onView={setViewingTx} onAdd={() => setAddType('Витрати')} />
       )}
       {activeTab === 'housing' && familyId && (
-        <HousingPage familyId={familyId} overview={housing} setOverview={setHousing} accounts={accounts}
+        <HousingPage familyId={familyId} overview={housing} setOverview={setHousingAndUpcoming} accounts={accounts}
           onFinanceChanged={() => { refreshTransactions(); refreshStats(); refreshUpcoming(); }}
           action={housingAction} onActionDone={() => setHousingAction(null)} />
       )}
@@ -259,7 +270,7 @@ export default function App() {
           onTokenSaved={() => setMe({ ...me, has_mono_token: true })} copyToClipboard={copyToClipboard} />
       )}
 
-      {(activeTab === 'home' || activeTab === 'transactions') && (
+      {activeTab === 'transactions' && (
         <button className="fab" aria-label="Додати операцію" onClick={() => { haptic('medium'); setAddType('Витрати'); }}>+</button>
       )}
 

@@ -58,6 +58,7 @@ input, textarea, select { font: inherit; color: inherit; }
 
 /* ---------- layout */
 .app { min-height: 100vh; padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 16px); }
+.app--fab { padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + 92px); }  /* last row stays above the FAB */
 .page { padding: 8px 16px 24px; display: flex; flex-direction: column; gap: 12px; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .stack-s { display: flex; flex-direction: column; gap: 8px; }
@@ -90,7 +91,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .card--tap:active { opacity: .85; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 4px 0; }
 .section-title { font-size: 13px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--hint); }
-.link { background: none; border: 0; padding: 0; color: var(--link); font-weight: 600; font-size: 14px; }
+.link { background: none; border: 0; padding: 10px 6px; margin: -10px -6px; color: var(--link); font-weight: 600; font-size: 14px; }  /* ≥40px tap area, no layout shift */
 .date-head { font-size: 13px; font-weight: 600; color: var(--hint); padding: 10px 4px 4px; }
 
 /* ---------- hero */
@@ -142,7 +143,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .chip--on { background: var(--accent); color: var(--accent-text); font-weight: 600; }
 .chip--sm { height: 30px; padding: 0 11px; font-size: 13px; }
 .seg { display: flex; background: var(--fill); border-radius: 11px; padding: 2px; gap: 2px; }
-.seg__btn { flex: 1; height: 34px; border: 0; border-radius: 9px; background: transparent; color: var(--hint); font-weight: 600; font-size: 14px; padding: 0 6px; white-space: nowrap; }
+.seg__btn { flex: 1; min-width: 0; height: 34px; border: 0; border-radius: 9px; background: transparent; color: var(--hint); font-weight: 600; font-size: 13.5px; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .seg__btn--on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
 
 /* ---------- forms */

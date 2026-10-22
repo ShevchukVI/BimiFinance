@@ -18,7 +18,10 @@ import { confirmAsync } from '../tg';
 import StatsView from './StatsView';
 
 type Seg = 'overview' | 'meters' | 'bills' | 'stats';
-export type HousingAction = 'readings' | 'settings' | null;
+type SheetState = ({ kind: 'readings' } | { kind: 'settings' } | { kind: 'bill'; providerId?: number; bill?: Bill; period?: string }
+  | { kind: 'pay'; providerId?: number } | { kind: 'provider'; id: number } | { kind: 'providerForm'; id?: number }
+  | { kind: 'meter'; id: number } | { kind: 'loose'; providerId?: number }) & { back?: SheetState };
+export type HousingAction = 'readings' | 'settings' | { pay: number } | null;
 
 const meterIcon = (t: string) => ({ electricity: '⚡', gas: '🔥', water: '💧', heating: '♨️' } as Record<string, string>)[t] || '🔢';
 
@@ -47,10 +50,11 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
 }) {
   const [seg, setSeg] = useState<Seg>('overview');
   const [loading, setLoading] = useState(!overview);
-  const [sheet, setSheet] = useState<
-    | { kind: 'readings' } | { kind: 'settings' } | { kind: 'bill'; providerId?: number; bill?: Bill; period?: string }
-    | { kind: 'pay'; providerId?: number } | { kind: 'provider'; id: number } | { kind: 'providerForm'; id?: number }
-    | { kind: 'meter'; id: number } | { kind: 'loose'; providerId?: number } | null>(null);
+  const [sheet, setSheetState] = useState<SheetState | null>(null);
+  // child sheets (pay / bill / edit opened from a provider card) return to their parent on close
+  const setSheet = (next: SheetState | null) => setSheetState(next);
+  const openChild = (next: SheetState) => setSheetState(cur => ({ ...next, back: cur || undefined } as SheetState));
+  const close = () => setSheetState(cur => cur?.back || null);
   const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [bills, setBills] = useState<Bill[] | null>(null);
   const [payments, setPayments] = useState<Payment[] | null>(null);
@@ -70,7 +74,7 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
   useEffect(() => { if (seg === 'bills' && bills === null) reloadLists(); }, [seg]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!action || !overview?.profile) return;
-    setSheet(action === 'readings' ? { kind: 'readings' } : { kind: 'settings' });
+    setSheet(action === 'readings' ? { kind: 'readings' } : action === 'settings' ? { kind: 'settings' } : { kind: 'pay', providerId: action.pay });
     onActionDone();
   }, [action, overview?.profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -142,7 +146,7 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
 
       <Segmented value={seg} onChange={setSeg} options={[
         { value: 'overview', label: 'Огляд' }, ...(hasMeters ? [{ value: 'meters' as Seg, label: 'Лічильники' }] : []),
-        { value: 'bills', label: 'Платіжки' }, { value: 'stats', label: 'Статистика' },
+        { value: 'bills', label: 'Платіжки' }, { value: 'stats', label: 'Графіки' },
       ]} />
 
       {seg === 'overview' && <OverviewSeg o={o} onProvider={id => setSheet({ kind: 'provider', id })}
@@ -150,29 +154,29 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
       {seg === 'meters' && <MetersSeg meters={o.meters} onReadings={() => setSheet({ kind: 'readings' })} onMeter={id => setSheet({ kind: 'meter', id })} />}
       {seg === 'bills' && <BillsSeg o={o} bills={bills} payments={payments} onBill={b => setSheet({ kind: 'bill', bill: b, providerId: b.provider_id })}
         onAdd={() => setSheet({ kind: 'bill' })} onPay={() => setSheet({ kind: 'pay' })} onProvider={id => setSheet({ kind: 'provider', id })} />}
-      {seg === 'stats' && <StatsView familyId={familyId} overview={o} />}
+      {seg === 'stats' && <StatsView familyId={familyId} overview={o} onChanged={() => changed()} />}
 
-      {sheet?.kind === 'readings' && <ReadingsSheet familyId={familyId} meters={o.meters} onClose={() => setSheet(null)} onSaved={changed} />}
+      {sheet?.kind === 'readings' && <ReadingsSheet familyId={familyId} meters={o.meters} onClose={close} onSaved={changed} />}
       {sheet?.kind === 'bill' && <BillSheet familyId={familyId} overview={o} providerId={sheet.providerId} bill={sheet.bill} period={sheet.period}
-        onClose={() => setSheet(null)} onSaved={() => changed()} />}
+        onClose={close} onSaved={() => changed()} />}
       {sheet?.kind === 'pay' && <PaymentSheet familyId={familyId} overview={o} providerId={sheet.providerId} accounts={accounts}
-        onClose={() => setSheet(null)} onSaved={(ov, withTx) => { changed(ov); if (withTx) onFinanceChanged(); }} />}
+        onClose={close} onSaved={(ov, withTx) => { changed(ov); if (withTx) onFinanceChanged(); }} />}
       {sheet?.kind === 'provider' && (() => {
         const p = providers.find(x => x.id === sheet.id);
         return p ? <ProviderSheet familyId={familyId} provider={p} meters={o.meters.filter(m => m.provider_id === p.id)}
-          onClose={() => setSheet(null)} onPay={() => setSheet({ kind: 'pay', providerId: p.id })}
-          onBill={(b, period) => setSheet({ kind: 'bill', providerId: p.id, bill: b, period })}
-          onEdit={() => setSheet({ kind: 'providerForm', id: p.id })} onChanged={() => changed()}
-          onLoose={() => setSheet({ kind: 'loose', providerId: p.id })} /> : null;
+          onClose={close} onPay={() => openChild({ kind: 'pay', providerId: p.id })}
+          onBill={(b, period) => openChild({ kind: 'bill', providerId: p.id, bill: b, period })}
+          onEdit={() => openChild({ kind: 'providerForm', id: p.id })} onChanged={withTx => { changed(); if (withTx) onFinanceChanged(); }}
+          onLoose={() => openChild({ kind: 'loose', providerId: p.id })} /> : null;
       })()}
       {sheet?.kind === 'providerForm' && <ProviderForm familyId={familyId} provider={providers.find(p => p.id === sheet.id)}
-        meters={o.meters.filter(m => m.provider_id === sheet.id)} onClose={() => setSheet(null)} onSaved={() => { setSheet(null); changed(); }} />}
-      {sheet?.kind === 'settings' && <SettingsSheet familyId={familyId} overview={o} onClose={() => setSheet(null)}
-        onChanged={() => changed()} onEditProvider={id => setSheet({ kind: 'providerForm', id })} onAddProvider={() => setSheet({ kind: 'providerForm' })} />}
-      {sheet?.kind === 'loose' && <LooseSheet familyId={familyId} overview={o} providerId={sheet.providerId} onClose={() => setSheet(null)} onChanged={() => changed()} />}
+        meters={o.meters.filter(m => m.provider_id === sheet.id)} onClose={close} onSaved={() => { close(); changed(); }} />}
+      {sheet?.kind === 'settings' && <SettingsSheet familyId={familyId} overview={o} onClose={close}
+        onChanged={() => changed()} onEditProvider={id => openChild({ kind: 'providerForm', id })} onAddProvider={() => openChild({ kind: 'providerForm' })} />}
+      {sheet?.kind === 'loose' && <LooseSheet familyId={familyId} overview={o} providerId={sheet.providerId} onClose={close} onChanged={() => changed()} />}
       {sheet?.kind === 'meter' && (() => {
         const m = o.meters.find(x => x.id === sheet.id);
-        return m ? <MeterSheet familyId={familyId} meter={m} onClose={() => setSheet(null)} onChanged={() => changed()} /> : null;
+        return m ? <MeterSheet familyId={familyId} meter={m} onClose={close} onChanged={() => changed()} /> : null;
       })()}
     </div>
   );

@@ -53,7 +53,7 @@ export default function BillSheet({ familyId, overview, providerId, bill, period
 
   useEffect(() => { if (bill) fill(bill, true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!pid || editing) return;
+    if (!pid || bill) return;  // opened on a concrete bill → no auto-switching
     let cancelled = false;
     setLoading(true);
     (async () => {
@@ -64,7 +64,7 @@ export default function BillSheet({ familyId, overview, providerId, bill, period
           const all = await housingApi.bills(familyId, pid);
           const ex = all.find(b => b.id === d.existing_id);
           if (ex && !cancelled) { setEditing(ex); setFlags(ex.flags); fill(ex, true); }
-        } else fill(d, false);
+        } else { setEditing(null); setFlags(null); fill(d, false); }
       } catch (e) { toast(errText(e), 'err'); }
       if (!cancelled) setLoading(false);
     })();
@@ -107,7 +107,7 @@ export default function BillSheet({ familyId, overview, providerId, bill, period
   };
 
   return (
-    <Sheet title={editing ? `Платіжка · ${monthYear(editing.period)}` : 'Нова платіжка'} icon={provider?.icon || '🧾'} onClose={onClose}
+    <Sheet title={editing ? `Платіжка · ${monthYear(editing.period)}` : 'Нова платіжка'} icon={provider?.icon || '🧾'} onClose={onClose} confirmClose
       footer={<>
         <Button onClick={save} disabled={!valid || loading} busy={busy}>Зберегти · до сплати {money(toPayNum)}</Button>
         {editing && <Button variant="danger" onClick={remove}>Видалити платіжку</Button>}
@@ -117,12 +117,13 @@ export default function BillSheet({ familyId, overview, providerId, bill, period
           {flags.map((f, i) => <Banner key={i} tone={f.level === 'warn' ? 'warn' : undefined} icon={f.level === 'warn' ? '⚠️' : 'ℹ️'}>{f.text}</Banner>)}
         </div>
       )}
-      {!editing && (
+      {!bill && (
         <>
           <Field label="Послуга">
             <Chips value={pid} onChange={id => { setPid(id); setFlags(null); }} options={choices.map(p => ({ value: p.id, label: `${p.icon} ${p.name}` }))} />
           </Field>
           <Field label="За місяць"><input className="input" type="month" value={per} onChange={e => setPer(e.target.value)} /></Field>
+          {editing && <Banner icon="✏️">Платіжка за {monthYear(editing.period)} уже є — ви її редагуєте. Оберіть інший місяць, щоб додати нову.</Banner>}
         </>
       )}
       {!pid ? <div className="muted small center">Оберіть послугу — решта підставиться автоматично</div> : loading ? <Spinner /> : (
@@ -139,6 +140,7 @@ export default function BillSheet({ familyId, overview, providerId, bill, period
                       <input className="input tnum" inputMode="decimal" placeholder="Поточний" value={l.curr} onChange={e => setLine(i, { curr: e.target.value })} aria-label="Поточний показник" />
                       <input className="input tnum" inputMode="decimal" placeholder="Тариф" value={l.tariff} onChange={e => setLine(i, { tariff: e.target.value })} aria-label="Тариф" />
                     </div>
+                    {calc[i].volume !== null && calc[i].volume < 0 && <div className="field__error">Поточний показник менший за попередній — перевірте цифри</div>}
                   </div>
                 ) : (
                   <div key={i} className="hstack">

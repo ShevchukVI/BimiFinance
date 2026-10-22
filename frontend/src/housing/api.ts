@@ -5,7 +5,10 @@ const base = (fid: number) => `/housing/families/${fid}`;
 
 export const errText = (e: any, fallback = 'Помилка') => {
   const d = e?.response?.data?.detail;
-  return typeof d === 'string' ? d : fallback;
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d) && d[0]?.msg) return `Перевірте поля: ${d[0].loc?.slice(-1)[0] ?? ''} — ${d[0].msg}`;
+  if (!e?.response) return "Немає з'єднання — спробуйте ще раз";
+  return fallback;
 };
 
 export const housingApi = {

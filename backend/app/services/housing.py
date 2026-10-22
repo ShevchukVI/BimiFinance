@@ -346,12 +346,16 @@ def _fixed_ledger(provider, payments, today: date) -> dict:
     """Rent / mortgage / fixed charges: monthly charge due on due_day, paid in advance.
     Returns debt, paid_until, next charge and per-month punctuality history."""
     amount = provider.fixed_amount or 0.0
+    if amount <= 0 and payments:
+        # amount not set (e.g. internet template): assume the usual payment, never a growing overpay
+        recent = [p.amount for p in payments[-3:] if p.amount > 0]
+        amount = sum(recent) / len(recent) if recent else 0.0
     start = month_start(provider.start_date or (payments[0].date if payments else today))
     opening = provider.opening_balance or 0.0
     pays = [p for p in payments if p.date >= start - timedelta(days=31)]
     total_paid = sum(p.amount for p in pays)
     due_months = [m for m in month_iter(start, today) if due_date(m, provider.due_day) <= today]
-    debt = opening + amount * len(due_months) - total_paid
+    debt = opening + amount * len(due_months) - total_paid if amount > 0 else 0.0
 
     history, paid_until, next_charge = [], None, None
     if amount > 0:
@@ -366,7 +370,7 @@ def _fixed_ledger(provider, payments, today: date) -> dict:
         if covered > 0:
             paid_until = month_end(add_months(start, covered - 1))
         horizon = max(len(due_months), covered)
-        for i in range(min(horizon, 24)):
+        for i in range(horizon):  # full history: an old unpaid month must stay visible
             m = add_months(start, i)
             need = amount * (i + 1)
             closed = next((d for c, d in cum_dates if c + 1e-6 >= need), None)
@@ -381,12 +385,14 @@ def _fixed_ledger(provider, payments, today: date) -> dict:
         nm = add_months(start, covered)
         next_charge = {"month": str(nm), "due": str(due_date(nm, provider.due_day)), "amount": amount}
     late = [h for h in history if h["days_late"]]
+    overdue = [h for h in history if h["status"] == "overdue"]
     return {
         "debt": r2(debt), "accrued_since": 0.0, "to_pay_now": r2(max(debt, 0.0)),
         "next_bill_forecast": amount or None, "estimated": False, "basis": "fixed",
         "paid_until": str(paid_until) if paid_until else None, "next_charge": next_charge,
         "next_due": next_charge["due"] if next_charge else None,
         "history": history[-12:],
+        "overdue_months": len(overdue), "overdue_since": overdue[0]["due"] if overdue else None,
         "punctuality": {"months": len([h for h in history if h["status"] == "paid"]), "late": len(late),
                         "max_days_late": max((h["days_late"] for h in late), default=0)},
     }

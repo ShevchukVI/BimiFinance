@@ -129,10 +129,15 @@ def _apply(o: models.Obligation, data: dict, db: Session, fid: int):
         c = db.get(models.Category, data["category_id"])
         if not c or c.family_id != fid:
             raise HTTPException(400, "Невірна категорія")
+    if data.get("user_id") and not db.query(models.FamilyMember).filter(
+            models.FamilyMember.family_id == fid, models.FamilyMember.user_id == data["user_id"]).first():
+        raise HTTPException(400, "Невірний учасник")
     for k, v in data.items():
         setattr(o, k, v)
     if o.first_due and not o.due_day:
         o.due_day = o.first_due.day
+    if not o.first_due and (o.due_day or o.kind in O.CREDIT_KINDS):
+        o.first_due = O.first_due(o)  # anchor the schedule once — never recompute from «today»
 
 
 @router.post("/families/{family_id}/obligations")
@@ -329,6 +334,10 @@ def obligation_reminders(db: Session, fid: int, today: date) -> list[tuple[str, 
         if not nd or i["state"]["status"] == "finished":
             continue
         days = (nd - today).days
+        if i["state"]["status"] == "overdue" and -days % 7 == 1:
+            msgs.append((f"ob:{i['id']}:{nd}:overdue{-days // 7}",
+                         f"⚠️ {i['icon']} {i['name']}: прострочено платіж {i['amount']:.0f} ₴ (з {nd:%d.%m})"))
+            continue
         if days in (1, 0):
             prog = (f" (платіж {i['state']['paid_count'] + 1} з {i['state']['payments_total']})"
                     if i["state"]["payments_total"] else "")

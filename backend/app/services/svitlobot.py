@@ -142,6 +142,8 @@ def apply_events(db: Session, channel: str, events: list[Event]) -> int:
         if row is None:
             row = (q.filter(models.PowerOutage.ended_at.is_(None), models.PowerOutage.started_at <= ev.at)
                    .order_by(models.PowerOutage.started_at.desc()).first())
+            if row is not None and start is not None and row.started_at < start - tol:
+                row = None  # an older open outage is not this one — its own «on» post was missed
         if row is None and start is not None:
             row = models.PowerOutage(channel=channel, started_at=start)
             db.add(row)
