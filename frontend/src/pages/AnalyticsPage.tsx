@@ -138,7 +138,7 @@ export default function AnalyticsPage({ familyId, categories, onView, onBudgetsC
               <div className="spread small"><span className="muted">Усього {money(budgets.totals.spent, 'UAH', 0)} з {money(budgets.totals.amount, 'UAH', 0)}</span>
                 {data.is_current && <span className="muted">лишилось {budgets.days_left} дн.</span>}</div>
               {budgets.items.map(b => (
-                <button key={b.category_id} className="stack-s" style={{ gap: 4, background: 'none', border: 0, padding: 0, textAlign: 'left' }}
+                <div key={b.category_id} className="stack-s" role="button" tabIndex={0} style={{ gap: 4, cursor: 'pointer' }}
                   onClick={() => { const r = data.categories.find(c => c.category_id === b.category_id); if (r) setOpenCat(r); }}>
                   <div className="spread small">
                     <span className="ellipsis"><b>{b.name}</b></span>
@@ -150,7 +150,7 @@ export default function AnalyticsPage({ familyId, categories, onView, onBudgetsC
                       : `лишилось ${money(b.remaining, 'UAH', 0)}${b.per_day_left && data.is_current ? ` · ≈ ${money(b.per_day_left, 'UAH', 0)}/день` : ''}`}
                     {data.is_current && b.status !== 'over' && b.forecast > b.amount ? ` · прогноз ${money(b.forecast, 'UAH', 0)}` : ''}
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           </Card>

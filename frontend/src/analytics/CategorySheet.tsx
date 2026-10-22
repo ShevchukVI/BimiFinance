@@ -31,7 +31,7 @@ export default function CategorySheet({ familyId, month, row, budget, categories
         <div className="stack-s">
           <div className="spread small"><span className="muted">Бюджет {money(budget.amount, 'UAH', 0)}</span>
             <b className={budget.status === 'over' ? 'danger' : budget.status === 'warn' ? 'warn' : 'pos'}>{budget.remaining >= 0 ? `лишилось ${money(budget.remaining, 'UAH', 0)}` : `перевищено на ${money(-budget.remaining, 'UAH', 0)}`}</b></div>
-          <Progress value={budget.pct} />
+          <Progress value={budget.pct} tone={budget.status === 'over' ? 'danger' : budget.status === 'warn' ? 'warn' : undefined} />
         </div>
       )}
       {txs === null ? <Spinner /> : txs.length === 0 ? <div className="muted small center">Операцій немає</div>
