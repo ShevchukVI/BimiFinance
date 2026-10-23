@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, List
 from pydantic import BaseModel, computed_field, model_validator
 
@@ -157,6 +157,9 @@ class JarOut(BaseModel):
     balance: float
     goal: float
     currency: str = "UAH"
+    mono_jar_id: Optional[str] = None  # linked Monobank «банка»
+    user_id: Optional[int] = None
+    synced_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
 class JarTopUp(BaseModel):
     amount: float

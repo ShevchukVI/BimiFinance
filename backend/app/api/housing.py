@@ -994,6 +994,22 @@ def sync_outages(family_id: int, _: None = Depends(require_family), db: Session 
 
 # ---------------------------------------------------------------- system (bot)
 
+@system_router.post("/jars/sync")
+def system_sync_jars(_: None = Depends(require_internal_key), db: Session = Depends(get_db)):
+    """Bot: every family with a Monobank token — refresh jars and reclassify jar transfers."""
+    from app.services.mono_jars import sync_family
+    fids = sorted({m.family_id for m in db.query(models.FamilyMember).join(models.User)
+                   .filter(models.User.mono_token.isnot(None))})
+    out = []
+    for fid in fids:
+        try:
+            out.append(sync_family(db, fid))
+        except Exception as exc:
+            db.rollback()
+            out.append({"family_id": fid, "error": type(exc).__name__})
+    return out
+
+
 @system_router.post("/outages/sync")
 def system_sync_outages(_: None = Depends(require_internal_key), db: Session = Depends(get_db)):
     channels = {p.svitlobot_channel for p in db.query(models.HousingProfile).all() if p.svitlobot_channel}

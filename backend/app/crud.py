@@ -568,7 +568,8 @@ def get_jars(db: Session, family_id: int):
     jars = db.query(models.Jar).filter(models.Jar.family_id == family_id).order_by(models.Jar.id).all()
     result = []
     for j in jars:
-        j.balance = get_jar_balance(db, j.id)
+        # Monobank jar: the bank knows the real balance (incl. money moved before Bimi)
+        j.balance = j.bank_balance if (j.mono_jar_id and j.bank_balance is not None) else get_jar_balance(db, j.id)
         result.append(j)
     return result
 

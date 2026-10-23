@@ -212,6 +212,11 @@ def unlink(db: Session, tx) -> dict:
 def auto_link(db: Session, tx) -> Optional[str]:
     """Called for every new transaction (incl. Monobank webhooks). Never raises."""
     try:
+        from app.services.mono_jars import classify  # own Monobank jar → goal history, not spending
+        jar_id = classify(db, tx)
+        if jar_id:
+            db.commit()
+            return f"jar:{jar_id}"
         if tx.type != "Витрати" or tx.jar_id is not None or tx.obligation_id:
             return None
         obs = db.query(models.Obligation).filter(models.Obligation.family_id == tx.family_id,

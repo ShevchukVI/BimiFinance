@@ -23,6 +23,15 @@ def get_jar_transactions(family_id: int, jar_id: int, _: None = Depends(require_
     return crud.get_jar_transactions(db, jar_id)
 
 
+@router.post("/families/{family_id}/jars/sync", response_model=list[schemas.JarOut])
+def sync_jars(family_id: int, _: None = Depends(require_family), db: Session = Depends(get_db)):
+    """Pull Monobank «банки» of family members (cached 60 s by the provider) and turn transfers to/from
+    them into goal history instead of spending."""
+    from app.services.mono_jars import sync_family
+    sync_family(db, family_id)
+    return crud.get_jars(db, family_id)
+
+
 @router.post("/jars", response_model=schemas.JarOut)
 def create_jar(jar: schemas.JarCreate, actor: Actor = Depends(get_actor), db: Session = Depends(get_db)):
     check_family_membership(db, actor, jar.family_id)
@@ -47,6 +56,8 @@ def topup_jar(jar_id: int, payload: schemas.JarTopUp, actor: Actor = Depends(get
     if not jar:
         raise HTTPException(status_code=404, detail="Jar not found")
     check_family_membership(db, actor, jar.family_id)
+    if jar.mono_jar_id:
+        raise HTTPException(status_code=400, detail="Це банка Monobank — поповнюйте й знімайте в застосунку банку, Bimi побачить автоматично")
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
     user_id = _jar_actor_user_id(db, actor, jar.family_id)
@@ -64,6 +75,8 @@ def withdraw_jar(jar_id: int, payload: schemas.JarTopUp, actor: Actor = Depends(
     if not jar:
         raise HTTPException(status_code=404, detail="Jar not found")
     check_family_membership(db, actor, jar.family_id)
+    if jar.mono_jar_id:
+        raise HTTPException(status_code=400, detail="Це банка Monobank — поповнюйте й знімайте в застосунку банку, Bimi побачить автоматично")
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
     user_id = _jar_actor_user_id(db, actor, jar.family_id)

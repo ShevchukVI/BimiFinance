@@ -40,8 +40,28 @@ class MonobankProvider(BankProvider):
                 await asyncio.sleep(1)
         return None
 
-    async def get_accounts(self, token: str) -> List[BankAccount]:
+    _ci_cache: dict = {}
+
+    async def get_client_info(self, token: str, ttl: int = 60) -> Optional[dict]:
+        """/personal/client-info is rate limited (1/min per token) — share one cached response
+        between balances and jars."""
+        import hashlib
+        import time
+        key = hashlib.sha256(token.encode()).hexdigest()
+        hit = self._ci_cache.get(key)
+        if hit and time.time() - hit[0] < ttl:
+            return hit[1]
         data = await self._request(token, "GET", "/personal/client-info")
+        if data:
+            self._ci_cache[key] = (time.time(), data)
+        return data or (hit[1] if hit else None)
+
+    async def get_jars(self, token: str) -> list:
+        data = await self.get_client_info(token)
+        return (data or {}).get("jars", []) or []
+
+    async def get_accounts(self, token: str) -> List[BankAccount]:
+        data = await self.get_client_info(token)
         if not data:
             return []
         accounts = []

@@ -81,6 +81,12 @@ def run_migrations():
             # Obligations (credits / installments / subscriptions): link a transaction to one
             "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS obligation_id INTEGER REFERENCES obligations(id) ON DELETE SET NULL",
             "CREATE INDEX IF NOT EXISTS ix_transactions_obligation_id ON transactions (obligation_id)",
+            # Monobank jars ↔ Bimi goals
+            "ALTER TABLE jars ADD COLUMN IF NOT EXISTS mono_jar_id VARCHAR",
+            "ALTER TABLE jars ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)",
+            "ALTER TABLE jars ADD COLUMN IF NOT EXISTS bank_balance DOUBLE PRECISION",
+            "ALTER TABLE jars ADD COLUMN IF NOT EXISTS synced_at TIMESTAMP",
+            "CREATE INDEX IF NOT EXISTS ix_jars_mono_jar_id ON jars (mono_jar_id)",
         ):
             conn.execute(text(stmt))
 

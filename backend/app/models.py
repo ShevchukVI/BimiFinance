@@ -87,6 +87,11 @@ class Jar(Base):
     balance = Column(Float, default=0.0)
     goal = Column(Float, nullable=False)
     currency = Column(String, default="UAH", nullable=False)
+    # Monobank «банка»: balance comes from the bank, history = transfers to/from it
+    mono_jar_id = Column(String, nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # whose Monobank
+    bank_balance = Column(Float, nullable=True)
+    synced_at = Column(DateTime, nullable=True)
     family = relationship("Family", back_populates="jars")
     transactions = relationship("Transaction", back_populates="jar")
 
