@@ -11,13 +11,18 @@ export const catIcon = (cat?: Category) => {
 export function TxAmount({ tx, big }: { tx: Transaction; big?: boolean }) {
   const cur = tx.currency || 'UAH';
   const style = big ? { fontSize: 34, fontWeight: 800 } : { fontWeight: 600 };
-  if (tx.type === 'Переказ') return <span className="muted" style={style}>↔ {money(Math.abs(tx.amount), cur)}</span>;
+  if (tx.type === 'Переказ' || tx.jar_id) return <span className="muted" style={style}>↔ {money(Math.abs(tx.amount), cur)}</span>;
   const income = tx.type !== 'Витрати';
   return <span className={income ? 'pos' : ''} style={style}>{income ? '+' : '−'}{money(tx.amount, cur)}</span>;
 }
 
 export function TxRow({ tx, categories, onClick }: { tx: Transaction; categories: Category[]; onClick: () => void }) {
   const cat = categories.find(c => c.id === tx.category_id);
+  if (tx.jar_id) {
+    const into = tx.type === 'Поповнення';
+    return <Row icon="🏦" title={tx.title} sub={[into ? 'Відкладено в банку' : 'Знято з банки', tx.user_name].filter(Boolean).join(' · ')}
+      end={<TxAmount tx={tx} />} onClick={onClick} />;
+  }
   const pending = (cat?.name || '').includes('Очікує');
   const sub = [tx.type === 'Переказ' ? 'Переказ' : cleanCatName(cat?.name), tx.user_name, tx.account !== 'Готівка' ? tx.account : null]
     .filter(Boolean).join(' · ');

@@ -16,7 +16,10 @@ import MorePage, { MoreScreen } from './pages/MorePage';
 import LinkSheet from './payments/LinkSheet';
 import { payApi, Upcoming } from './payments/api';
 import type { ObDraft } from './payments/ObligationForm';
-import { anApi, Budgets } from './analytics/api';
+import { anApi, Budgets, BudgetRow } from './analytics/api';
+import EnvelopeSheet from './analytics/EnvelopeSheet';
+import BudgetsSheet from './analytics/BudgetsSheet';
+import JarHistoryModal from './components/JarHistoryModal';
 import HousingPage, { HousingAction } from './housing/HousingPage';
 import { housingApi } from './housing/api';
 import type { Overview } from './housing/types';
@@ -42,6 +45,10 @@ export default function App() {
   const [housing, setHousing] = useState<Overview | null>(null);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
   const [budgets, setBudgets] = useState<Budgets | null>(null);
+  const [envelope, setEnvelope] = useState<BudgetRow | null>(null);
+  const [editBudgets, setEditBudgets] = useState(false);
+  const [historyJar, setHistoryJar] = useState<Jar | null>(null);
+  const [jarsSyncing, setJarsSyncing] = useState(false);
   const [linkTx, setLinkTx] = useState<Transaction | null>(null);
   const [paymentsDraft, setPaymentsDraft] = useState<ObDraft | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,6 +105,14 @@ export default function App() {
     payApi.upcoming(fId, 10).then(u => { if (famRef.current === fId) setUpcoming(u); }).catch(() => { /**/ });
     setBudgets(null);
     anApi.budgets(fId).then(b => { if (famRef.current === fId) setBudgets(b); }).catch(() => { /**/ });
+    if ((bankRes.data || []).length) {
+      // Monobank jars → goals; transfers to them stop counting as spending
+      api.post(`/families/${fId}/jars/sync`).then(r => {
+        if (famRef.current !== fId) return;
+        setJars(r.data);
+        api.get(`/families/${fId}/transactions?skip=0&limit=${LIMIT}`).then(t => { if (famRef.current === fId) setTransactions(t.data); }).catch(() => { /**/ });
+      }).catch(() => { /* bank unavailable — keep cached goals */ });
+    }
   }, []);
 
   useEffect(() => {
@@ -219,6 +234,13 @@ export default function App() {
 
   const openMore = (screen: MoreScreen) => { setMoreScreen(s => ({ screen, key: s.key + 1 })); setActiveTab('more'); };
   const openJars = () => openMore('jars');
+  const syncJars = async () => {
+    if (!familyId) return;
+    setJarsSyncing(true);
+    try { setJars((await api.post(`/families/${familyId}/jars/sync`)).data); toast('Банки оновлено'); refreshTransactions(); refreshStats(); }
+    catch { toast('Monobank не відповів, спробуйте за хвилину', 'err'); }
+    setJarsSyncing(false);
+  };
   const refreshUpcoming = () => { const f = familyId; if (f) payApi.upcoming(f, 10).then(u => { if (famRef.current === f) setUpcoming(u); }).catch(() => { /**/ }); };
   const setHousingAndUpcoming = (o: Overview) => { setHousing(o); refreshUpcoming(); };
   const openPayments = (draft: ObDraft | null = null) => { setPaymentsDraft(draft); openMore('payments'); };
@@ -243,11 +265,11 @@ export default function App() {
 
       {activeTab === 'home' && (
         <HomePage stats={stats} transactions={transactions} categories={categories} bankBalances={bankBalances} jars={jars} housing={housing}
-          upcoming={upcoming} budgets={budgets} onBudgets={() => setActiveTab('analytics')} onUpcoming={u => { if (u && u.kind === 'housing') { setHousingAction({ pay: u.id }); setActiveTab('housing'); } else openPayments(); }}
+          upcoming={upcoming} budgets={budgets} onBudgets={() => setEditBudgets(true)} onEnvelope={setEnvelope} onUpcoming={u => { if (u && u.kind === 'housing') { setHousingAction({ pay: u.id }); setActiveTab('housing'); } else openPayments(); }}
           onOpenInbox={() => setIsInboxOpen(true)} onSeeAll={() => setActiveTab('transactions')}
           onAdd={t => setAddType(t || 'Витрати')} onView={setViewingTx}
           onHousing={() => setActiveTab('housing')} onReadings={() => { setHousingAction('readings'); setActiveTab('housing'); }}
-          onJar={setTopupJar} onJars={openJars} />
+          onJar={j => (j.mono_jar_id ? setHistoryJar(j) : setTopupJar(j))} onJars={openJars} />
       )}
       {activeTab === 'transactions' && (
         <TransactionsPage transactions={transactions} categories={categories} hasMore={hasMore}
@@ -264,7 +286,7 @@ export default function App() {
           me={{ id: me.id, name: me.name, role: me.role || 'member' }}
           families={families} familyId={familyId} familyName={familyName} inviteCode={inviteCode}
           familyUsers={familyUsers} hasMonoToken={me.has_mono_token}
-          jars={jars} onJarTopUp={setTopupJar} onJarCreate={() => setIsJarModalOpen(true)}
+          jars={jars} onJarTopUp={setTopupJar} onJarCreate={() => setIsJarModalOpen(true)} onJarsSync={bankBalances.length ? syncJars : undefined} jarsSyncing={jarsSyncing}
           noteText={noteText} setNoteText={setNoteText} onNoteBlur={saveNote} onNoteClear={clearNote}
           splitBy={splitBy} setSplitBy={setSplitBy}
           housingEnabled={!housingOff && !!housing?.profile}
@@ -284,6 +306,10 @@ export default function App() {
         hidden={housingOff && activeTab !== 'housing' ? ['housing'] : []} />
 
       {isJarModalOpen && familyId && <CreateJarModal familyId={familyId} onClose={() => setIsJarModalOpen(false)} onCreated={j => setJars(prev => [...prev, j])} />}
+      {envelope && familyId && budgets && <EnvelopeSheet familyId={familyId} env={envelope} categories={categories} daysLeft={budgets.days_left}
+        onClose={() => setEnvelope(null)} onView={setViewingTx} onEdit={() => { setEnvelope(null); setEditBudgets(true); }} />}
+      {editBudgets && familyId && <BudgetsSheet familyId={familyId} categories={categories} budgets={budgets} onClose={() => setEditBudgets(false)} onSaved={setBudgets} />}
+      {historyJar && familyId && <JarHistoryModal jar={historyJar} familyId={familyId} onClose={() => setHistoryJar(null)} />}
       {topupJar && <TopUpJarModal jar={topupJar} onClose={() => setTopupJar(null)} onToppedUp={onJarTopUp} />}
       {isInboxOpen && familyId && <InboxModal familyId={familyId} categories={categories} onClose={() => setIsInboxOpen(false)} onCategorized={handleCategorized} />}
       {viewingTx && familyId && <TxDetailsSheet tx={viewingTx} categories={categories} familyId={familyId} onClose={() => setViewingTx(null)}
