@@ -83,15 +83,20 @@ class Brain:
         self.cats = db.query(models.Category).filter(models.Category.family_id == family_id).all()
         self.by_id = {c.id: c for c in self.cats}
         usable = {c.id for c in self.cats if not any(s in c.name for s in SYSTEM)}
-        self.hist: dict[str, list[tuple[float, int, str]]] = defaultdict(list)
+        self.hist: dict[str, list[tuple[float, int, str, bool]]] = defaultdict(list)
         rows = (db.query(models.Transaction.title, models.Transaction.amount, models.Transaction.category_id,
-                         models.Transaction.type)
+                         models.Transaction.type, models.Transaction.refund)
                 .filter(models.Transaction.family_id == family_id, models.Transaction.category_id.in_(usable),
                         models.Transaction.jar_id.is_(None)).all())
-        for title, amount, cat, typ in rows:
+        refunds: Counter = Counter()
+        for title, amount, cat, typ, refund in rows:
+            if refund:
+                refunds[cat] += 1
             k = merchant_key(title)
             if k:
-                self.hist[k].append((amount or 0, cat, typ))
+                self.hist[k].append((amount or 0, cat, typ, bool(refund)))
+        # ↩️ categories the family files refunds under, most used first (friends pay back for social events…)
+        self.refund_order = [c for c, _ in refunds.most_common()]
         self.rejects = {(r.merchant, r.category_id) for r in db.query(models.SmartReject).filter(
             models.SmartReject.family_id == family_id)}
 
@@ -104,17 +109,19 @@ class Brain:
         key = merchant_key(tx.title)
         a = tx.amount or 0
         ct = _ctype(tx.type)
-        hist = [(x, c) for x, c, typ in self.hist.get(key, [])
-                if typ == tx.type and c in self.by_id and self.by_id[c].type == ct and (key, c) not in self.rejects]
+        # an incoming transfer from a person who usually pays back (↩️) learns the refund category too
+        hist = [(x, (c, r)) for x, c, typ, r in self.hist.get(key, [])
+                if typ == tx.type and c in self.by_id and (key, c) not in self.rejects
+                and (self.by_id[c].type == ct or (r and ct == "income"))]
         if hist:
             near = [c for x, c in hist if abs(x - a) <= max(0.25 * a, 15)]
             pool = near or [c for _, c in hist]
-            cat, n = Counter(pool).most_common(1)[0]
+            (cat, refund), n = Counter(pool).most_common(1)[0]
             share = n / len(pool)
             if share >= LIKELY_SHARE:
                 sure = share >= SURE_SHARE and (n >= SURE_MIN or (n >= 2 and share == 1))
-                seen = sum(1 for _, c in hist if c == cat)
-                return {"category_id": cat, "confidence": "sure" if sure else "likely", "source": "history", "seen": seen,
+                seen = sum(1 for _, c in hist if c == (cat, refund))
+                return {"category_id": cat, "refund": refund, "confidence": "sure" if sure else "likely", "source": "history", "seen": seen,
                         "auto": sure and n >= AUTO_MIN,
                         "reason": "так розкладено минулого разу" if seen == 1 else f"так розкладали {seen} {_times(seen)}"}
         pick = self._pickable(tx.type)
@@ -154,7 +161,8 @@ def suggestions(db: Session, family_id: int, limit: int = 500) -> dict:
         by_tx[tx.id] = s
         k = (merchant_key(tx.title), s["category_id"], s["confidence"])
         g = groups.setdefault(k, {"title": re.split(r"\s*[|(]", (tx.title or "").replace("❓ ", ""))[0].strip(),
-                                  "category_id": s["category_id"], "confidence": s["confidence"], "source": s["source"],
+                                  "category_id": s["category_id"], "refund": bool(s.get("refund")),
+                                  "confidence": s["confidence"], "source": s["source"],
                                   "reason": s["reason"], "count": 0, "min": None, "max": None, "total": 0.0,
                                   "transaction_ids": [], "type": tx.type})
         if s.get("seen", 0) > g.get("seen", 0):
@@ -167,7 +175,7 @@ def suggestions(db: Session, family_id: int, limit: int = 500) -> dict:
     order = sorted(groups.values(), key=lambda g: (g["confidence"] != "sure", -g["count"], -g["total"]))
     return {"pending": pending_query(db, family_id).count(), "suggested": len(by_tx),
             "sure": sum(1 for s in by_tx.values() if s["confidence"] == "sure"),
-            "by_tx": {str(k): v for k, v in by_tx.items()}, "groups": order}
+            "by_tx": {str(k): v for k, v in by_tx.items()}, "groups": order, "refund_order": brain.refund_order}
 
 
 def reject(db: Session, family_id: int, title: str, category_id: int) -> None:
@@ -196,6 +204,7 @@ def auto_categorize(db: Session, tx) -> bool:
             return False
         from app.crud import _clean_pending_title
         tx.category_id, tx.title, tx.auto_category = s["category_id"], _clean_pending_title(tx.title), True
+        tx.refund = bool(s.get("refund"))
         db.commit()
         db.refresh(tx)
         return True

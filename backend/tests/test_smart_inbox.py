@@ -124,3 +124,26 @@ def test_monobank_accounts_readable_names_and_credit(monkeypatch):
     a, b = asyncio.run(p.get_accounts("t"))
     assert a.name == "Чорна картка" and a.last4 == "1234" and a.currency == "UAH" and a.balance - a.credit_limit == 300
     assert b.name == "Біла картка USD" and b.currency == "USD"
+
+
+def test_refunds_learned_per_person_and_ordered(db, seeded):
+    # friends paying back: ↩️ Соціальні події most often → first; a person's usual refund category is suggested
+    fid, uid = seeded["family"].id, seeded["admin"].id
+    pend = seeded["cats"]["Очікує"].id
+    c = _cats(db, fid, "🍻 Соціальні події", "💼 Робочі витрати", "🎁 Подарунки")
+    for title, cat in (("Від: Кирило", "🍻 Соціальні події"), ("Від: Кирило", "🍻 Соціальні події"),
+                       ("Від: Саша", "🍻 Соціальні події"), ("Від: Олег", "💼 Робочі витрати")):
+        make_tx(db, fid, uid, c[cat].id, 250, "Поповнення", title=title).refund = True
+    make_tx(db, fid, uid, c["🎁 Подарунки"].id, 2000, "Поповнення", title="Від: Кирило")  # a gift, not a refund
+    db.commit()
+    t = make_tx(db, fid, uid, pend, 270, "Поповнення", title="❓ Від: Кирило (за піцу)")
+    out = smart.suggestions(db, fid)
+    assert out["refund_order"][:2] == [c["🍻 Соціальні події"].id, c["💼 Робочі витрати"].id]
+    s = out["by_tx"][str(t.id)]
+    assert s["category_id"] == c["🍻 Соціальні події"].id and s["refund"] is True
+    g = next(g for g in out["groups"] if t.id in g["transaction_ids"])
+    r = client.post(f"/families/{fid}/inbox/apply", headers=_hdr(fid), json={"items": [
+        {"transaction_id": t.id, "category_id": g["category_id"], "refund": g["refund"]}]})
+    assert r.json()["applied"] == 1
+    db.refresh(t)
+    assert t.refund is True and t.category_id == c["🍻 Соціальні події"].id

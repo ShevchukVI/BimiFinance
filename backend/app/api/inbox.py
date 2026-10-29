@@ -63,6 +63,8 @@ def suggest_one(family_id: int, tx_id: int, _: None = Depends(require_family), d
     if not tx:
         raise HTTPException(404, "Транзакцію не знайдено")
     s = smart.Brain(db, family_id).suggest(tx)
+    if s and s.get("refund"):
+        s = None  # shortcut: the bot keyboard has no ↩️ refund option yet, so it gets no hint for these
     if s:
         c = db.get(models.Category, s["category_id"])
         s["category_name"] = c.name if c else ""
@@ -72,6 +74,7 @@ def suggest_one(family_id: int, tx_id: int, _: None = Depends(require_family), d
 class ApplyItem(BaseModel):
     transaction_id: int
     category_id: int
+    refund: bool = False  # ↩️ incoming money filed under the expense category it lowers
 
 
 class ApplyIn(BaseModel):
@@ -90,9 +93,10 @@ def apply(family_id: int, payload: ApplyIn, _: None = Depends(require_family), d
         if it.transaction_id not in pending or c is None or any(s in c.name for s in smart.SYSTEM):
             continue
         tx = db.get(models.Transaction, it.transaction_id)
-        if c.type != ("expense" if tx.type == "Витрати" else "income"):
+        refund = it.refund and tx.type != "Витрати"
+        if c.type != ("expense" if tx.type == "Витрати" or refund else "income"):
             continue
-        updated = crud.update_transaction(db, tx.id, {"category_id": c.id})
+        updated = crud.update_transaction(db, tx.id, {"category_id": c.id, "refund": refund})
         _sync_housing_payments(db, updated)
         _sync_vehicle_log(db, updated)
         done += 1

@@ -7,10 +7,10 @@ import { haptic } from '../tg';
 import { Button, Card, Chips, Empty, Section, Sheet, Spinner, Switch } from '../ui';
 import { TxAmount, catIcon } from './TransactionCard';
 
-type Hint = { category_id: number; confidence: 'sure' | 'likely'; source: 'history' | 'mcc' | 'chain'; reason: string };
-type Group = { title: string; category_id: number; confidence: 'sure' | 'likely'; source: string; reason: string; count: number;
+type Hint = { category_id: number; refund?: boolean; confidence: 'sure' | 'likely'; source: 'history' | 'mcc' | 'chain'; reason: string };
+type Group = { title: string; category_id: number; refund: boolean; confidence: 'sure' | 'likely'; source: string; reason: string; count: number;
   min: number; max: number; total: number; transaction_ids: number[]; type: string };
-type Smart = { pending: number; suggested: number; sure: number; by_tx: Record<string, Hint>; groups: Group[]; smart_auto: boolean; auto_recent: number };
+type Smart = { pending: number; suggested: number; sure: number; by_tx: Record<string, Hint>; groups: Group[]; smart_auto: boolean; auto_recent: number; refund_order: number[] };
 
 const range = (g: Group) => g.min === g.max ? money(g.min, 'UAH', 0) : `${money(g.min, 'UAH', 0)}–${money(g.max, 'UAH', 0)}`;
 
@@ -34,7 +34,10 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
   const usable = (c: Category, type: string) => c.type === type && !c.name.includes('Очікує') && !c.name.includes('Балансування');
   const pickable = (tx: Transaction) => categories.filter(c => usable(c, tx.type === 'Витрати' ? 'expense' : 'income'));
   // incoming money can also be a refund for a purchase (friends paid their share) → lowers that expense category
-  const refundable = (tx: Transaction) => tx.type === 'Витрати' ? [] : categories.filter(c => usable(c, 'expense'));
+  // order learned from earlier refunds (friends usually pay back for social events, work trips…)
+  const refundRank = (id: number) => { const i = smart?.refund_order?.indexOf(id) ?? -1; return i < 0 ? 999 : i; };
+  const refundable = (tx: Transaction) => tx.type === 'Витрати' ? [] : categories.filter(c => usable(c, 'expense'))
+    .map((c, i) => ({ c, i })).sort((a, b) => refundRank(a.c.id) - refundRank(b.c.id) || a.i - b.i).map(x => x.c);
   const cat = (id: number) => categories.find(c => c.id === id);
 
   const load = async () => {
@@ -53,7 +56,7 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
   const likely = groups.filter(g => g.confidence === 'likely');
   const sureCount = sure.reduce((n, g) => n + g.transaction_ids.filter(id => !doneIds.has(id)).length, 0);
 
-  const applyIds = async (pairs: { transaction_id: number; category_id: number }[], key: string) => {
+  const applyIds = async (pairs: { transaction_id: number; category_id: number; refund: boolean }[], key: string) => {
     setBusyGroup(key);
     try {
       const r = await api.post<{ applied: number; pending: number }>(`/families/${familyId}/inbox/apply`, { items: pairs });
@@ -77,8 +80,8 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
     try { await api.put(`/families/${familyId}/smart`, { smart_auto: on }); toast(on ? 'Bimi розкладатиме впевнені операції сам' : 'Автоматичне розкладання вимкнено'); }
     catch { setSmart(s => s && { ...s, smart_auto: !on }); toast('Не вдалося зберегти', 'err'); }
   };
-  const acceptGroup = (g: Group) => applyIds(g.transaction_ids.filter(id => !doneIds.has(id)).map(id => ({ transaction_id: id, category_id: g.category_id })), gkey(g));
-  const acceptAllSure = () => applyIds(sure.flatMap(g => g.transaction_ids.filter(id => !doneIds.has(id)).map(id => ({ transaction_id: id, category_id: g.category_id }))), 'all');
+  const acceptGroup = (g: Group) => applyIds(g.transaction_ids.filter(id => !doneIds.has(id)).map(id => ({ transaction_id: id, category_id: g.category_id, refund: g.refund })), gkey(g));
+  const acceptAllSure = () => applyIds(sure.flatMap(g => g.transaction_ids.filter(id => !doneIds.has(id)).map(id => ({ transaction_id: id, category_id: g.category_id, refund: g.refund }))), 'all');
 
   const assign = async (tx: Transaction, catId: number, refund = false) => {
     if (savingId !== null) return;
@@ -110,9 +113,9 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
               <div className="bold ellipsis">{g.title}</div>
               <div className="muted small">{ids.length} {plural(ids.length, 'операція', 'операції', 'операцій')} · {range(g)}</div>
             </div>
-            <span className="badge badge--accent" style={{ marginLeft: 8 }}>{catIcon(c)} {cleanCatName(c?.name)}</span>
+            <span className="badge badge--accent" style={{ marginLeft: 8 }}>{g.refund ? '↩️ ' : ''}{catIcon(c)} {cleanCatName(c?.name)}</span>
           </div>
-          <div className="muted xsmall">{g.source === 'history' ? `✨ ${g.reason}` : g.source === 'mcc' ? `🏷️ За типом продавця: ${g.reason}` : `🏪 Відома мережа: ${g.reason}`}</div>
+          <div className="muted xsmall">{g.refund ? '↩️ Повернення за покупку · ' : ''}{g.source === 'history' ? `✨ ${g.reason}` : g.source === 'mcc' ? `🏷️ За типом продавця: ${g.reason}` : `🏪 Відома мережа: ${g.reason}`}</div>
           {open === k && txs.length > 0 && (
             <div className="inbox-peek">
               {txs.map(t => <div key={t.id} className="spread small"><span className="muted">{day(t.date)}{t.user_name ? ` · ${t.user_name}` : ''}</span><span className="tnum">{money(t.amount)}</span></div>)}
@@ -185,11 +188,15 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
                   </div>
                   <Chips scroll small value={null} onChange={id => assign(tx, id)}
                     options={ordered.map(c => ({ value: c.id, label: h && c.id === h.category_id ? `✨ ${c.name}` : c.name }))} />
-                  {refundable(tx).length > 0 && <>
-                    <div className="muted xsmall">↩️ Або це повернення за покупку — оберіть, за що:</div>
-                    <Chips scroll small value={null} onChange={id => assign(tx, id, true)}
-                      options={refundable(tx).map(c => ({ value: c.id, label: c.name }))} />
-                  </>}
+                  {refundable(tx).length > 0 && (() => {
+                    const rf = refundable(tx);
+                    const hinted = h?.refund ? [...rf.filter(c => c.id === h.category_id), ...rf.filter(c => c.id !== h.category_id)] : rf;
+                    return <>
+                      <div className="muted xsmall">↩️ {h?.refund ? 'Схоже на повернення за покупку' : 'Або це повернення за покупку'} — оберіть, за що:</div>
+                      <Chips scroll small value={null} onChange={id => assign(tx, id, true)}
+                        options={hinted.map(c => ({ value: c.id, label: h?.refund && c.id === h.category_id ? `✨ ${c.name}` : c.name }))} />
+                    </>;
+                  })()}
                 </div>
               </Card>
             );

@@ -10,8 +10,9 @@ type TxType = 'Витрати' | 'Поповнення';
 
 // Додавання/редагування транзакції. editingTx == null → режим створення.
 export default function TxModal({
-  editingTx, categories, familyId, dbUserId, accounts, onClose, onSaved, onDeleted, initialType = 'Витрати', usage = {},
+  editingTx, categories, familyId, dbUserId, accounts, onClose, onSaved, onDeleted, initialType = 'Витрати', usage = {}, refundUsage = {},
 }: {
+  refundUsage?: Record<number, number>;  // category id → how often money came back for it (↩️ refunds first)
   usage?: Record<number, number>;  // category id → how often it was used lately (most used first)
   editingTx: Transaction | null;
   categories: Category[];
@@ -40,7 +41,8 @@ export default function TxModal({
   // most used first; service categories («Балансування» — corrections of the cash balance) at the end
   const service = (c: Category) => c.name.includes('Балансування');
   const filtered = categories.filter(c => c.type === (txType === 'Витрати' || refund ? 'expense' : 'income') && !c.name.includes('Очікує') && !(refund && service(c)))
-    .map((c, i) => ({ c, i })).sort((a, b) => Number(service(a.c)) - Number(service(b.c)) || (usage[b.c.id] || 0) - (usage[a.c.id] || 0) || a.i - b.i)
+    .map((c, i) => ({ c, i })).sort((a, b) => Number(service(a.c)) - Number(service(b.c))
+      || (refund ? (refundUsage[b.c.id] || 0) - (refundUsage[a.c.id] || 0) : 0) || (usage[b.c.id] || 0) - (usage[a.c.id] || 0) || a.i - b.i)
     .map(x => x.c);
   const TOP = 8;
   const shown = allCats || filtered.length <= TOP + 1 ? filtered
