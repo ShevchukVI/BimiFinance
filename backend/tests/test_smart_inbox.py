@@ -190,3 +190,16 @@ def test_family_transfer_pairs_closest_mutual_leg(db, seeded):
     b = smart.Brain(db, fam.id)
     assert b.transfer_pair(got).id == sent.id and b.transfer_pair(sent).id == got.id
     assert b.transfer_pair(bowling) is None
+
+
+def test_family_transfer_pair_with_sender_fee(db, seeded):
+    # Аня sends 700 from credit funds: −728 «Вадим Ш.» (4 % fee) ↔ +700 «Від: Анна Казанець» at Вадим
+    from datetime import date as _d
+    fam, vadym, pend = seeded["family"], seeded["admin"], seeded["cats"]["Очікує"].id
+    anya = models.User(tg_id=777003, name="Аня")
+    db.add(anya); db.flush(); db.add(models.FamilyMember(family_id=fam.id, user_id=anya.id, role="member"))
+    db.add(models.Category(family_id=fam.id, icon="🔄", name="🔄 Переказ", color="#000", type="income")); db.commit()
+    sent = make_tx(db, fam.id, anya.id, pend, 728, "Витрати", title="❓ Вадим Ш.", date=_d(2026, 9, 22))
+    got = make_tx(db, fam.id, vadym.id, pend, 700, "Поповнення", title="❓ Від: Анна Казанець", date=_d(2026, 9, 22))
+    s = smart.Brain(db, fam.id).suggest(sent)
+    assert s["source"] == "family" and s["pair_id"] == got.id and "комісія 28 ₴" in s["reason"]

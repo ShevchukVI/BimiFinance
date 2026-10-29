@@ -24,6 +24,7 @@ from app.services.vehicles import merchant_key
 SYSTEM = ("Очікує", "Балансування")
 SURE_SHARE, SURE_MIN, LIKELY_SHARE = 0.9, 3, 0.6
 AUTO_MIN = 3  # categorised automatically only after 3+ consistent examples
+FEE_MAX = 0.05  # a transfer between family members may cost the sender up to 5 % (Monobank credit funds: 4 %)
 
 # MCC → words of a category name (the first family category containing one of them wins)
 MCC_HINTS: list[tuple[range | tuple, tuple[str, ...], str]] = [
@@ -110,11 +111,13 @@ class Brain:
         if tx.jar_id is not None or tx.type not in ("Витрати", "Поповнення") or not tx.date:
             return None
         T = models.Transaction
+        # the sender may pay a fee on top (Monobank: 4 % when sending credit funds: −728 ↔ +700)
+        lo, hi = (tx.amount / (1 + FEE_MAX), tx.amount) if tx.type == "Витрати" else (tx.amount, tx.amount * (1 + FEE_MAX))
         cands = (self.db.query(T).filter(T.family_id == self.family_id, T.id != tx.id, T.user_id != tx.user_id,
-                                         T.amount == tx.amount, T.jar_id.is_(None),
+                                         T.amount >= lo - 0.005, T.amount <= hi + 0.005, T.jar_id.is_(None),
                                          T.type == ("Поповнення" if tx.type == "Витрати" else "Витрати"),
                                          T.date >= tx.date - timedelta(days=1), T.date <= tx.date + timedelta(days=1)).all())
-        return min(cands, key=lambda t: (abs((t.date - tx.date).days), abs(t.id - tx.id)), default=None)
+        return min(cands, key=lambda t: (abs(t.amount - tx.amount), abs((t.date - tx.date).days), abs(t.id - tx.id)), default=None)
 
     def transfer_pair(self, tx):
         """The other leg of money sent between family members: same amount, opposite direction, another
@@ -138,7 +141,8 @@ class Brain:
             certain = sender.lower() in (incoming.title or "").lower()  # «Від: Вадим Шевчук» from Вадим
             return {"category_id": transfer.id, "confidence": "sure" if certain else "likely", "source": "family",
                     "pair_id": pair.id, "auto": certain,
-                    "reason": f"переказ між вами ({sender} → {receiver})"}
+                    "reason": f"переказ між вами ({sender} → {receiver})"
+                              + (f", комісія {outgoing.amount - incoming.amount:g} ₴" if outgoing.amount > incoming.amount else "")}
         key = merchant_key(tx.title)
         a = tx.amount or 0
         ct = _ctype(tx.type)
