@@ -107,16 +107,16 @@ def _fmt(x: float) -> str:
 
 
 def tx_title(l: models.VehicleLog) -> str:
-    """Expense title in the owner's own style: «⛽ Газ 30 л по 42,9 грн, до повного»."""
-    icon, label = V.KINDS.get(l.kind, ("📦", "Авто"))
+    """Expense title in the owner's own style: «Газ 30 л по 42,9 грн, до повного» (the category shows the icon)."""
+    _icon, label = V.KINDS.get(l.kind, ("📦", "Авто"))
     if l.kind != "fuel":
-        return f"{icon} {l.title or label}"
+        return l.title or label
     parts = [V.FUELS.get(l.fuel or "", {}).get("label", "Пальне")]
     if l.liters:
         parts.append(f"{_fmt(l.liters)} {V.FUELS.get(l.fuel or '', {}).get('unit', 'л')}")
     if l.price:
         parts.append(f"по {_fmt(l.price)} грн")
-    return f"{icon} {' '.join(parts)}{', до повного' if l.full_tank else ''}{f' · {l.place}' if l.place else ''}"
+    return f"{' '.join(parts)}{', до повного' if l.full_tank else ''}{f' · {l.place}' if l.place else ''}"
 
 
 @router.get("/families/{family_id}/auto")

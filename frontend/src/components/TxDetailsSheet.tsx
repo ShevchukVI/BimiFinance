@@ -29,6 +29,7 @@ export default function TxDetailsSheet({ tx, categories, familyId, onClose, onEd
       </div>
       <Card>
         <KV k="Категорія" v={tx.type === 'Переказ' ? 'Переказ' : (cat?.name || 'Інше')} />
+        {tx.auto_category && <div className="muted xsmall" style={{ margin: '-2px 0 6px' }}>🤖 Розклав Bimi — так ви завжди розкладали це місце. Не так? «Редагувати», і Bimi запам'ятає.</div>}
         <KV k="Дата" v={dmy(tx.date)} />
         <KV k="Рахунок" v={tx.account} />
         {tx.user_name && <KV k="Хто" v={tx.user_name} />}

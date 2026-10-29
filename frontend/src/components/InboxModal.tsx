@@ -4,13 +4,13 @@ import { toast } from '../toast';
 import { Transaction, Category, cleanCatName } from '../types';
 import { day, money, plural } from '../format';
 import { haptic } from '../tg';
-import { Button, Card, Chips, Empty, Section, Sheet, Spinner } from '../ui';
+import { Button, Card, Chips, Empty, Section, Sheet, Spinner, Switch } from '../ui';
 import { TxAmount, catIcon } from './TransactionCard';
 
 type Hint = { category_id: number; confidence: 'sure' | 'likely'; source: 'history' | 'mcc' | 'chain'; reason: string };
 type Group = { title: string; category_id: number; confidence: 'sure' | 'likely'; source: string; reason: string; count: number;
   min: number; max: number; total: number; transaction_ids: number[]; type: string };
-type Smart = { pending: number; suggested: number; sure: number; by_tx: Record<string, Hint>; groups: Group[] };
+type Smart = { pending: number; suggested: number; sure: number; by_tx: Record<string, Hint>; groups: Group[]; smart_auto: boolean; auto_recent: number };
 
 const range = (g: Group) => g.min === g.max ? money(g.min, 'UAH', 0) : `${money(g.min, 'UAH', 0)}–${money(g.max, 'UAH', 0)}`;
 
@@ -64,6 +64,17 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
     } catch { toast('Помилка збереження', 'err'); }
     setBusyGroup(null);
   };
+  // «Ні»: це місце — не ця категорія; Bimi більше так не пропонує (і сам так не розкладе)
+  const rejectGroup = (g: Group) => {
+    setHidden(h => [...h, gkey(g)]);
+    haptic('light');
+    api.post(`/families/${familyId}/inbox/reject`, { title: g.title, category_id: g.category_id }).catch(() => { /* hidden anyway */ });
+  };
+  const setAuto = async (on: boolean) => {
+    setSmart(s => s && { ...s, smart_auto: on });
+    try { await api.put(`/families/${familyId}/smart`, { smart_auto: on }); toast(on ? 'Bimi розкладатиме впевнені операції сам' : 'Автоматичне розкладання вимкнено'); }
+    catch { setSmart(s => s && { ...s, smart_auto: !on }); toast('Не вдалося зберегти', 'err'); }
+  };
   const acceptGroup = (g: Group) => applyIds(g.transaction_ids.filter(id => !doneIds.has(id)).map(id => ({ transaction_id: id, category_id: g.category_id })), gkey(g));
   const acceptAllSure = () => applyIds(sure.flatMap(g => g.transaction_ids.filter(id => !doneIds.has(id)).map(id => ({ transaction_id: id, category_id: g.category_id }))), 'all');
 
@@ -108,7 +119,7 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
           <div className="hstack" style={{ gap: 8 }}>
             <Button size="sm" onClick={() => acceptGroup(g)} busy={busyGroup === k}>Так, {ids.length > 1 ? `усі ${ids.length}` : 'розкласти'}</Button>
             {txs.length > 0 && <Button size="sm" variant="secondary" onClick={() => setOpen(open === k ? null : k)}>{open === k ? 'Згорнути' : 'Переглянути'}</Button>}
-            <Button size="sm" variant="secondary" onClick={() => setHidden(h => [...h, k])}>Ні</Button>
+            <Button size="sm" variant="secondary" onClick={() => rejectGroup(g)}>Ні</Button>
           </div>
         </div>
       </Card>
@@ -119,6 +130,19 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
   return (
     <Sheet title={`Розібрати${total ? ` · ${total}` : ''}`} icon="🧹" onClose={onClose}>
       {loading && <Spinner />}
+      {!loading && smart && (
+        <Card>
+          <div className="spread">
+            <div style={{ minWidth: 0 }}>
+              <div className="bold">🤖 Bimi розкладає сам</div>
+              <div className="muted small">{smart.smart_auto
+                ? (smart.auto_recent ? `За тиждень розклав ${smart.auto_recent} ${plural(smart.auto_recent, 'операцію', 'операції', 'операцій')}. ` : '') + 'Нові операції з місць, які ви 3+ рази розкладали однаково'
+                : 'Вимкнено — усе чекатиме вас тут'}</div>
+            </div>
+            <Switch on={smart.smart_auto} onChange={setAuto} label="Bimi розкладає сам" />
+          </div>
+        </Card>
+      )}
       {!loading && items.length === 0 && (
         <Empty icon="🎉" title="Все розібрано!" text="Нові операції з Monobank з'являться тут автоматично." />
       )}

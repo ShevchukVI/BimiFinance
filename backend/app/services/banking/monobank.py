@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 MONOBANK_API = "https://api.monobank.ua"
 
 
+CARD_NAMES = {"black": "Чорна картка", "white": "Біла картка", "platinum": "Platinum", "iron": "Iron", "fop": "ФОП",
+              "yellow": "Дитяча картка", "eAid": "єПідтримка", "madeInUkraine": "Made in Ukraine", "rebuilding": "Відновлення"}
+CURRENCIES = {980: "UAH", 840: "USD", 978: "EUR", 985: "PLN", 826: "GBP"}
+
 class MonobankProvider(BankProvider):
     async def _request(self, token: str, method: str, path: str, json_data=None, timeout=15) -> Optional[dict]:
         headers = {"X-Token": token}
@@ -66,11 +70,17 @@ class MonobankProvider(BankProvider):
             return []
         accounts = []
         for acc in data.get("accounts", []):
+            kind = acc.get("type", "") or ""
+            cur = CURRENCIES.get(acc.get("currencyCode", 980), str(acc.get("currencyCode", "")))
+            pans = acc.get("maskedPan") or []
+            last4 = pans[0][-4:] if pans else ""
+            label = CARD_NAMES.get(kind, kind.capitalize() or "Рахунок")
             accounts.append(BankAccount(
                 external_id=str(acc.get("id")),
-                name=f"{acc.get('type', 'unknown')} ({acc.get('currencyCode', 980)})",
+                name=f"{label}{' ' + cur if cur != 'UAH' else ''}",
                 balance=acc.get("balance", 0) / 100.0,
                 credit_limit=acc.get("creditLimit", 0) / 100.0,
+                kind=kind, currency=cur, last4=last4,
             ))
         return accounts
 

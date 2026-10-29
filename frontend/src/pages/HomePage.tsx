@@ -5,7 +5,7 @@ import type { Upcoming } from '../payments/api';
 import type { Budgets, BudgetRow } from '../analytics/api';
 import type { AutoOverview } from '../auto/types';
 import { catIcon } from '../components/TransactionCard';
-import { approx, day, inMonth, money, plural, qty, todayIso } from '../format';
+import { approx, day, money, monthName, plural, qty, todayIso } from '../format';
 import { Badge, Banner, Card, Empty, Progress, Row, Section } from '../ui';
 import { TxList } from '../components/TransactionCard';
 
@@ -13,12 +13,13 @@ const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function HomePage({
   stats, transactions, categories, bankBalances, jars, housing, auto, upcoming, budgets,
-  onAuto, onOpenInbox, onUpcoming, onBudgets, onEnvelope, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
+  onAuto, onAnalytics, onMono, hasBank, smartSure, onOpenInbox, onUpcoming, onBudgets, onEnvelope, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
 }: {
   stats: Stats | null; transactions: Transaction[]; categories: Category[]; bankBalances: BankUserBalances[];
   jars: Jar[]; housing: Overview | null; auto: AutoOverview | null; onAuto: () => void; upcoming: Upcoming[]; budgets: Budgets | null;
   onOpenInbox: () => void; onUpcoming: (u: Upcoming | null) => void; onBudgets: () => void; onEnvelope: (b: BudgetRow) => void; onSeeAll: () => void; onAdd: (type?: 'Витрати' | 'Поповнення') => void;
   onView: (tx: Transaction) => void; onHousing: () => void; onReadings: () => void; onJar: (j: Jar) => void; onJars: () => void;
+  onAnalytics: () => void; onMono: () => void; hasBank: boolean; smartSure: number;
 }) {
   const [allEnv, setAllEnv] = useState(false);
   const pending = stats?.pending_count || 0;
@@ -40,6 +41,19 @@ export default function HomePage({
   }
   const fmtCurs = (byCur: Record<string, number>) => sortCurrencies(Object.keys(byCur)).map(c => money(byCur[c], c)).join(' · ');
 
+  // «Гроші» як у банку: картки (власні кошти окремо від кредитного ліміту), готівка, відкладене
+  const cards = bankBalances.flatMap(u => u.accounts.map(a => ({ ...a, user: u.user_name, cur: a.currency || 'UAH' })));
+  const own: Record<string, number> = {};
+  const add = (c: string, v: number) => { own[c] = n(own[c]) + n(v); };
+  cards.forEach(a => add(a.cur, a.balance));
+  cash.forEach(u => Object.entries(u.byCur).forEach(([c, v]) => add(c, v)));
+  const ownCurs = sortCurrencies(Object.keys(own));
+  const limit = cards.filter(a => a.cur === 'UAH').reduce((t, a) => t + n(a.credit_limit), 0);
+  const creditLeft = cards.filter(a => a.cur === 'UAH' && n(a.credit_limit) > 0).reduce((t, a) => t + Math.min(n(a.credit_limit), Math.max(0, n(a.available))), 0);
+  const creditUsed = limit - creditLeft;
+  const saved = jars.filter(j => (j.currency || 'UAH') === 'UAH').reduce((t, j) => t + n(j.balance), 0);
+  const people = new Set([...cards.map(a => a.user), ...[...cash.values()].map(u => u.name)]).size;
+
   const actions = [
     { icon: '➖', label: 'Витрата', onClick: () => onAdd('Витрати') },
     { icon: '➕', label: 'Дохід', onClick: () => onAdd('Поповнення') },
@@ -50,18 +64,45 @@ export default function HomePage({
   return (
     <div className="page">
       <Card className="hero">
-        <div className="hero__label">Витрати у {inMonth(todayIso())}</div>
-        <div className="hero__value tnum">{money(m.expense, main, 0)}</div>
+        <div className="hero__label">{people > 1 ? 'Гроші сім\'ї' : 'Мої гроші'}</div>
+        <div className={`hero__value tnum ${n(own.UAH) < 0 ? 'danger' : ''}`}>{money(n(own.UAH), 'UAH', 0)}</div>
         <div className="hero__sub">
-          <span className="pos">+{money(m.income, main, 0)} дохід</span>
-          <span>залишок {money(m.income - m.expense, main, 0)}</span>
+          {ownCurs.filter(c => c !== 'UAH').map(c => <span key={c}>+ {money(own[c], c, 0)}</span>)}
+          {limit > 0 && <span>кредитний ліміт {money(creditLeft, 'UAH', 0)}{creditUsed > 1 ? ` з ${money(limit, 'UAH', 0)}` : ''}</span>}
         </div>
-        {curs.filter(c => c !== main).map(c => (
-          <div key={c} className="muted small" style={{ marginTop: 4 }}>
-            {c}: <span className="pos">+{money(byCurrency[c].income, c)}</span> · −{money(byCurrency[c].expense, c)}
-          </div>
-        ))}
-        <div className="actions" style={{ marginTop: 16 }}>
+        <div className="money-list">
+          {cards.map((a, i) => (
+            <div key={`c${i}`} className="money-row">
+              <span className="money-row__icon">💳</span>
+              <span className="money-row__body">
+                <span className="money-row__title">{a.name}{a.last4 ? <span className="muted"> ··{a.last4}</span> : null}</span>
+                <span className="money-row__sub">{[people > 1 ? a.user : null, n(a.credit_limit) > 0 ? (a.balance < 0 ? `кредит ${money(-a.balance, a.cur, 0)}` : `+ ліміт ${money(a.credit_limit, a.cur, 0)}`) : null].filter(Boolean).join(' · ')}</span>
+              </span>
+              <b className={`tnum ${a.balance < 0 ? 'danger' : ''}`}>{money(a.balance, a.cur, 0)}</b>
+            </div>
+          ))}
+          {[...cash.entries()].map(([uid, u]) => (
+            <div key={`h${uid}`} className="money-row">
+              <span className="money-row__icon">💵</span>
+              <span className="money-row__body"><span className="money-row__title">Готівка</span>{people > 1 && <span className="money-row__sub">{u.name}</span>}</span>
+              <b className="tnum">{fmtCurs(u.byCur)}</b>
+            </div>
+          ))}
+          {jars.length > 0 && (
+            <button className="money-row" onClick={onJars}>
+              <span className="money-row__icon">🎯</span>
+              <span className="money-row__body"><span className="money-row__title">Відкладено</span><span className="money-row__sub">{jars.length} {jars.length === 1 ? 'ціль' : 'цілі'} · не входить у суму вище</span></span>
+              <b className="tnum">{money(saved, 'UAH', 0)}</b>
+            </button>
+          )}
+          {!hasBank && (
+            <button className="money-row" onClick={onMono}>
+              <span className="money-row__icon">🏦</span>
+              <span className="money-row__body"><span className="money-row__title link">Підключити Monobank</span><span className="money-row__sub">Баланс карток і операції — самі</span></span>
+            </button>
+          )}
+        </div>
+        <div className="actions" style={{ marginTop: 14 }}>
           {actions.map(a => (
             <button key={a.label} className="action" onClick={a.onClick}>
               <span className="action__icon">{a.icon}{!!a.badge && <span className="action__badge">{a.badge > 99 ? '99+' : a.badge}</span>}</span>
@@ -71,9 +112,22 @@ export default function HomePage({
         </div>
       </Card>
 
+      <button className="month-card" onClick={onAnalytics}>
+        <div className="spread"><span className="muted small">{monthName(todayIso())}</span><span className="muted small">Аналітика ›</span></div>
+        <div className="month-card__grid">
+          <div><div className="muted xsmall">Витрати</div><b className="tnum">{money(m.expense, main, 0)}</b></div>
+          <div><div className="muted xsmall">Дохід</div><b className="tnum pos">+{money(m.income, main, 0)}</b></div>
+          <div><div className="muted xsmall">Різниця</div><b className={`tnum ${m.income - m.expense < 0 ? 'danger' : ''}`}>{money(m.income - m.expense, main, 0)}</b></div>
+        </div>
+        {curs.filter(c => c !== main).map(c => (
+          <div key={c} className="muted xsmall" style={{ marginTop: 4 }}>{c}: +{money(byCurrency[c].income, c)} · −{money(byCurrency[c].expense, c)}</div>
+        ))}
+      </button>
+
       {pending > 0 && (
-        <Banner icon="🧹" tone="warn" onClick={onOpenInbox}>
-          <b>{pending} операцій без категорії</b><div className="muted small">Розкладіть за хвилину — так аналітика буде точною</div>
+        <Banner icon={smartSure ? '✨' : '🧹'} tone={smartSure ? undefined : 'warn'} onClick={onOpenInbox}>
+          <b>{pending} {plural(pending, 'операція', 'операції', 'операцій')} без категорії</b>
+          <div className="muted small">{smartSure ? `${smartSure} Bimi розкладе одним дотиком — так ви вже робили` : 'Розкладіть за хвилину — так аналітика буде точною'}</div>
         </Banner>
       )}
 
@@ -132,20 +186,6 @@ export default function HomePage({
           </Section>
         );
       })()}
-
-      {(cash.size > 0 || bankBalances.length > 0) && (
-        <Section title="Рахунки">
-          <Card flush>
-            {[...cash.entries()].map(([uid, u]) => (
-              <Row key={`c${uid}`} icon="💵" title="Готівка" sub={u.name} end={<b>{fmtCurs(u.byCur)}</b>} />
-            ))}
-            {bankBalances.flatMap(u => u.accounts.map((a, i) => (
-              <Row key={`b${u.user_id}-${i}`} icon="💳" title={a.name} sub={u.user_name}
-                end={<b className={a.balance < 0 ? 'danger' : ''}>{money(a.balance, a.currency || 'UAH')}</b>} />
-            )))}
-          </Card>
-        </Section>
-      )}
 
       {housingOn && housing && (
         <Section title="Житло" action="Відкрити" onAction={onHousing}>

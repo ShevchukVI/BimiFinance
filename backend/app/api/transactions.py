@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app import crud, models, schemas
 from app.core.deps import Actor, check_family_membership, get_actor, require_family
 from app.database import get_db
+from app.services import smart
 from app.services import vehicles as V
 from app.services.obligations import auto_link
 
@@ -54,9 +55,12 @@ def create_transaction(tx: schemas.TransactionCreate, actor: Actor = Depends(get
     # credit / subscription / housing payment recognised by its bank description → linked automatically
     if auto_link(db, obj):
         db.refresh(obj)
-    # fuel / car repair category → entry in the car journal (liters & odometer read from the note)
-    elif V.auto_link(db, obj):
-        db.refresh(obj)
+    else:
+        # «Bimi розкладає сам»: a merchant the family always puts in one category (metro → transport) 🤖
+        smart.auto_categorize(db, obj)
+        # fuel / car repair category → entry in the car journal (liters & odometer read from the note)
+        if V.auto_link(db, obj):
+            db.refresh(obj)
     return obj
 
 
@@ -88,10 +92,22 @@ def update_transaction(tx_id: int, payload: schemas.TransactionUpdate, actor: Ac
         raise HTTPException(status_code=404, detail="Transaction not found")
     if actor.kind == "user":
         check_family_membership(db, actor, tx.family_id)
-    updated = crud.update_transaction(db, tx_id, payload.model_dump(exclude_unset=True))
+    data = payload.model_dump(exclude_unset=True)
+    _person_categorised(db, tx, data)
+    updated = crud.update_transaction(db, tx_id, data)
     _sync_housing_payments(db, updated)
     _sync_vehicle_log(db, updated)
     return updated
+
+
+def _person_categorised(db: Session, tx, data: dict) -> None:
+    """A person set the category: the 🤖 mark goes; correcting Bimi's choice teaches it «not this one here»."""
+    if data.get("category_id") is None:
+        return
+    if tx.auto_category and data["category_id"] != tx.category_id:
+        smart.reject(db, tx.family_id, tx.title, tx.category_id)
+    smart.unreject(db, tx.family_id, tx.title, data["category_id"])  # put here by hand → allowed again
+    data["auto_category"] = False
 
 
 def _sync_housing_payments(db: Session, tx) -> None:
@@ -126,7 +142,9 @@ def update_tx_by_mono(mono_id: str, payload: schemas.TransactionUpdate, actor: A
         raise HTTPException(status_code=404, detail="Transaction not found")
     if actor.kind == "user":
         check_family_membership(db, actor, tx.family_id)
-    updated = crud.update_tx_by_mono(db, mono_id, payload.model_dump(exclude_unset=True))
+    data = payload.model_dump(exclude_unset=True)
+    _person_categorised(db, tx, data)
+    updated = crud.update_tx_by_mono(db, mono_id, data)
     _sync_housing_payments(db, updated)
     _sync_vehicle_log(db, updated)
     return updated

@@ -1,6 +1,8 @@
 """«Розібрати» + «Bimi пропонує»: категорії для нерозібраних операцій, по одній або групою."""
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -16,7 +18,42 @@ router = APIRouter(tags=["inbox"])
 
 @router.get("/families/{family_id}/inbox/suggestions")
 def inbox_suggestions(family_id: int, _: None = Depends(require_family), db: Session = Depends(get_db)):
-    return smart.suggestions(db, family_id)
+    out = smart.suggestions(db, family_id)
+    fam = db.get(models.Family, family_id)
+    since = date.today() - timedelta(days=7)
+    out["smart_auto"] = bool(fam.smart_auto)
+    out["auto_recent"] = db.query(models.Transaction).filter(models.Transaction.family_id == family_id,
+                                                             models.Transaction.auto_category.is_(True),
+                                                             models.Transaction.date >= since).count()
+    return out
+
+
+class RejectIn(BaseModel):
+    title: str
+    category_id: int
+
+
+@router.post("/families/{family_id}/inbox/reject")
+def reject(family_id: int, payload: RejectIn, _: None = Depends(require_family), db: Session = Depends(get_db)):
+    """«Ні»: this place is not this category — Bimi stops offering it (and never applies it by itself)."""
+    if not db.query(models.Category).filter(models.Category.id == payload.category_id,
+                                            models.Category.family_id == family_id).first():
+        raise HTTPException(404, "Категорію не знайдено")
+    smart.reject(db, family_id, payload.title, payload.category_id)
+    db.commit()
+    return {"ok": True}
+
+
+class SmartIn(BaseModel):
+    smart_auto: bool
+
+
+@router.put("/families/{family_id}/smart")
+def set_smart(family_id: int, payload: SmartIn, _: None = Depends(require_family), db: Session = Depends(get_db)):
+    fam = db.get(models.Family, family_id)
+    fam.smart_auto = payload.smart_auto
+    db.commit()
+    return {"smart_auto": fam.smart_auto}
 
 
 @router.get("/families/{family_id}/transactions/{tx_id}/suggest")

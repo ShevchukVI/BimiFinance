@@ -142,7 +142,7 @@ def _payment(db: Session, d: models.VehicleDocument, fid: int, uid: Optional[int
                           amount=d.amount, title=title, source="manual", user_id=uid, full_tank=False)
     if uid:
         tx = crud.create_transaction(db, fid, uid, V.category_for(db, fid, "insurance"), d.amount, crud.TYPE_EXPENSE,
-                                     f"📄 {title}", d.number or "", account, l.date)
+                                     title, d.number or "", account, l.date)
         l.transaction_id = tx.id
     db.add(l)
     db.flush()

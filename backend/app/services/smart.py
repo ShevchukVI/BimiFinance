@@ -22,6 +22,7 @@ from app.services.vehicles import merchant_key
 
 SYSTEM = ("Очікує", "Балансування")
 SURE_SHARE, SURE_MIN, LIKELY_SHARE = 0.9, 3, 0.6
+AUTO_MIN = 3  # categorised automatically only after 3+ consistent examples
 
 # MCC → words of a category name (the first family category containing one of them wins)
 MCC_HINTS: list[tuple[range | tuple, tuple[str, ...], str]] = [
@@ -91,6 +92,8 @@ class Brain:
             k = merchant_key(title)
             if k:
                 self.hist[k].append((amount or 0, cat, typ))
+        self.rejects = {(r.merchant, r.category_id) for r in db.query(models.SmartReject).filter(
+            models.SmartReject.family_id == family_id)}
 
     def _pickable(self, tx_type: str) -> list:
         t = _ctype(tx_type)
@@ -102,7 +105,7 @@ class Brain:
         a = tx.amount or 0
         ct = _ctype(tx.type)
         hist = [(x, c) for x, c, typ in self.hist.get(key, [])
-                if typ == tx.type and c in self.by_id and self.by_id[c].type == ct]
+                if typ == tx.type and c in self.by_id and self.by_id[c].type == ct and (key, c) not in self.rejects]
         if hist:
             near = [c for x, c in hist if abs(x - a) <= max(0.25 * a, 15)]
             pool = near or [c for _, c in hist]
@@ -112,6 +115,7 @@ class Brain:
                 sure = share >= SURE_SHARE and (n >= SURE_MIN or (n >= 2 and share == 1))
                 seen = sum(1 for _, c in hist if c == cat)
                 return {"category_id": cat, "confidence": "sure" if sure else "likely", "source": "history", "seen": seen,
+                        "auto": sure and n >= AUTO_MIN,
                         "reason": "так розкладено минулого разу" if seen == 1 else f"так розкладали {seen} {_times(seen)}"}
         pick = self._pickable(tx.type)
         mcc = getattr(tx, "mcc", None)
@@ -119,14 +123,14 @@ class Brain:
             for codes, words, label in MCC_HINTS:
                 if mcc in codes:
                     c = _cat_by_words(pick, words)
-                    if c:
+                    if c and (key, c.id) not in self.rejects:
                         return {"category_id": c.id, "confidence": "likely", "source": "mcc", "reason": f"тип продавця: {label}"}
         if tx.type == "Витрати":
             text = (tx.title or "").lower()
             for rx, words, label in CHAINS:
                 if re.search(rx, text):
                     c = _cat_by_words(pick, words)
-                    if c:
+                    if c and (key, c.id) not in self.rejects:
                         return {"category_id": c.id, "confidence": "likely", "source": "chain", "reason": label}
         return None
 
@@ -164,3 +168,37 @@ def suggestions(db: Session, family_id: int, limit: int = 500) -> dict:
     return {"pending": pending_query(db, family_id).count(), "suggested": len(by_tx),
             "sure": sum(1 for s in by_tx.values() if s["confidence"] == "sure"),
             "by_tx": {str(k): v for k, v in by_tx.items()}, "groups": order}
+
+
+def reject(db: Session, family_id: int, title: str, category_id: int) -> None:
+    key = merchant_key(title)
+    if key and not db.query(models.SmartReject).filter_by(family_id=family_id, merchant=key, category_id=category_id).first():
+        db.add(models.SmartReject(family_id=family_id, merchant=key, category_id=category_id))
+
+
+def unreject(db: Session, family_id: int, title: str, category_id: int) -> None:
+    db.query(models.SmartReject).filter_by(family_id=family_id, merchant=merchant_key(title),
+                                           category_id=category_id).delete()
+
+
+def auto_categorize(db: Session, tx) -> bool:
+    """A new bank operation still waiting in «Очікує»: categorised right away when the family's history is
+    unanimous (3+ times, ≥ 90 %) and the family keeps «Bimi розкладає сам» on. Marked 🤖. Never raises."""
+    try:
+        fam = db.get(models.Family, tx.family_id)
+        if fam is None or not fam.smart_auto or tx.jar_id or tx.obligation_id:
+            return False
+        cat = db.get(models.Category, tx.category_id) if tx.category_id else None
+        if cat is None or "Очікує" not in cat.name:
+            return False
+        s = Brain(db, tx.family_id).suggest(tx)
+        if not s or not s.get("auto"):
+            return False
+        from app.crud import _clean_pending_title
+        tx.category_id, tx.title, tx.auto_category = s["category_id"], _clean_pending_title(tx.title), True
+        db.commit()
+        db.refresh(tx)
+        return True
+    except Exception:
+        db.rollback()
+        return False

@@ -45,7 +45,7 @@ export default function AnalyticsPage({ familyId, categories, onView, onBudgetsC
       <IconButton label="Попередній місяць" onClick={() => setMonth(addMonthsIso(month, -1))}>‹</IconButton>
       <div className="center"><div className="bold" style={{ fontSize: 17 }}>{monthYear(month)}</div>
         {month !== thisMonth && <button className="link small" onClick={() => setMonth(thisMonth)}>до поточного</button>}</div>
-      <IconButton label="Наступний місяць" onClick={() => month < thisMonth && setMonth(addMonthsIso(month, 1))}>{month < thisMonth ? '›' : ' '}</IconButton>
+      {month < thisMonth ? <IconButton label="Наступний місяць" onClick={() => setMonth(addMonthsIso(month, 1))}>›</IconButton> : <span style={{ width: 36 }} />}
     </div>
   );
 
@@ -86,7 +86,12 @@ export default function AnalyticsPage({ familyId, categories, onView, onBudgetsC
         ))}
       </Card>
 
-      {data.insights.length > 0 && <div className="stack-s">{data.insights.map((t, i) => <Banner key={i} icon="💡">{t}</Banner>)}</div>}
+      {data.insights.length > 0 && (
+        <Card>
+          <div className="muted small" style={{ marginBottom: 6 }}>💡 Варто знати</div>
+          <ul className="insights">{data.insights.map((t, i) => <li key={i}>{t}</li>)}</ul>
+        </Card>
+      )}
 
       <Section title="12 місяців">
         <Card>

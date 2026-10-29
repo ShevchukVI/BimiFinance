@@ -1,4 +1,4 @@
-export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; user_name?: string | null; currency?: string; jar_id?: number | null; obligation_id?: number | null; }
+export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; user_name?: string | null; currency?: string; jar_id?: number | null; obligation_id?: number | null; auto_category?: boolean; mcc?: number | null; }
 export interface Category { id: number; name: string; icon: string; type: string; }
 export interface CashUserBalance { user_id: number; user_name: string; balance: number; currency?: string; }
 export interface Stats { income: number; expense: number; balance: number; top_categories: { name: string; amount: number }[]; pending_count: number; balances: Record<string, number>; cash_by_user?: CashUserBalance[]; by_currency?: Record<string, { income: number; expense: number }>; cash_by_currency?: { currency: string; balance: number }[]; }
@@ -6,7 +6,7 @@ export interface Note { id: number; content: string; }
 export interface Jar { id: number; name: string; balance: number; goal: number; currency?: string; mono_jar_id?: string | null; user_id?: number | null; synced_at?: string | null; }
 export interface FamilyMembership { family_id: number; name: string; role: string; is_active: boolean; }
 export interface FamilyUser { id: number; tg_id: number | null; name: string; has_mono_token: boolean; role: string | null; }
-export interface BankAccountBalance { name: string; balance: number; currency: string; }
+export interface BankAccountBalance { name: string; balance: number; currency: string; kind?: string; last4?: string; credit_limit?: number; available?: number | null; }
 export interface BankUserBalances { user_id: number; user_name: string; provider: string; accounts: BankAccountBalance[]; }
 export interface Me { id: number; tg_id: number | null; name: string; has_mono_token: boolean; current_active_family_id: number | null; family_id: number | null; role: string | null; tab_prefs?: Partial<Record<'housing' | 'auto', boolean>>; }
 

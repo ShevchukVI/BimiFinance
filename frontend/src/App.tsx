@@ -34,6 +34,7 @@ const TABS: Tab[] = ['home', 'transactions', 'housing', 'auto', 'analytics', 'mo
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
+  const [smartSure, setSmartSure] = useState(0);  // «Bimi пропонує»: operations it can categorise in one tap
   const [families, setFamilies] = useState<FamilyMembership[]>([]);
   const [familyId, setFamilyId] = useState<number | null>(null);
   const [familyName, setFamilyName] = useState('');
@@ -110,6 +111,8 @@ export default function App() {
     setAuto(null);
     autoApi.overview(fId).then(o => { if (famRef.current === fId) setAuto(o); }).catch(() => { /* auto is optional */ });
     payApi.upcoming(fId, 10).then(u => { if (famRef.current === fId) setUpcoming(u); }).catch(() => { /**/ });
+    setSmartSure(0);
+    api.get(`/families/${fId}/inbox/suggestions`).then(r => { if (famRef.current === fId) setSmartSure(r.data.sure || 0); }).catch(() => { /**/ });
     setBudgets(null);
     anApi.budgets(fId).then(b => { if (famRef.current === fId) setBudgets(b); }).catch(() => { /**/ });
     if ((bankRes.data || []).length) {
@@ -251,7 +254,8 @@ export default function App() {
   const refreshUpcoming = () => { const f = familyId; if (f) payApi.upcoming(f, 10).then(u => { if (famRef.current === f) setUpcoming(u); }).catch(() => { /**/ }); };
   const setHousingAndUpcoming = (o: Overview) => { setHousing(o); refreshUpcoming(); };
   const openPayments = (draft: ObDraft | null = null) => { setPaymentsDraft(draft); openMore('payments'); };
-  const accounts = ['Готівка', ...(bankBalances.find(b => b.user_id === me?.id)?.accounts.map(a => a.name) || [])];
+  // the bank webhook writes «Монобанк» — manual entries use the same name, so balances and history agree
+  const accounts = ['Готівка', ...(me?.has_mono_token || bankBalances.some(b => b.user_id === me?.id) ? ['Монобанк'] : [])];
   const housingOff = housing?.profile?.mode === 'off';
   // personal bottom bar: a section shows when the family uses it, unless this user hid it in «Ще» (or turned it on)
   const tabPrefs = me?.tab_prefs || {};
@@ -285,6 +289,7 @@ export default function App() {
       {activeTab === 'home' && (
         <HomePage stats={stats} transactions={transactions} categories={categories} bankBalances={bankBalances} jars={jars} housing={housing}
           auto={hideAuto ? null : auto} onAuto={() => { setActiveTab('auto'); refreshAuto(); }}
+          onAnalytics={() => setActiveTab('analytics')} onMono={() => openMore('mono')} hasBank={!!me?.has_mono_token || bankBalances.length > 0} smartSure={smartSure}
           upcoming={upcoming} budgets={budgets} onBudgets={() => setEditBudgets(true)} onEnvelope={setEnvelope} onUpcoming={u => { if (u && u.kind === 'housing') { setHousingAction({ pay: u.id }); setActiveTab('housing'); } else openPayments(); }}
           onOpenInbox={() => setIsInboxOpen(true)} onSeeAll={() => setActiveTab('transactions')}
           onAdd={t => setAddType(t || 'Витрати')} onView={setViewingTx}
@@ -338,7 +343,7 @@ export default function App() {
       {editBudgets && familyId && <BudgetsSheet familyId={familyId} categories={categories} budgets={budgets} onClose={() => setEditBudgets(false)} onSaved={setBudgets} />}
       {historyJar && familyId && <JarHistoryModal jar={historyJar} familyId={familyId} onClose={() => setHistoryJar(null)} />}
       {topupJar && <TopUpJarModal jar={topupJar} onClose={() => setTopupJar(null)} onToppedUp={onJarTopUp} />}
-      {isInboxOpen && familyId && <InboxModal familyId={familyId} categories={categories} onClose={() => setIsInboxOpen(false)} onCategorized={handleCategorized}
+      {isInboxOpen && familyId && <InboxModal familyId={familyId} categories={categories} onClose={() => { setIsInboxOpen(false); api.get(`/families/${familyId}/inbox/suggestions`).then(r => setSmartSure(r.data.sure || 0)).catch(() => { /**/ }); }} onCategorized={handleCategorized}
         onBulk={() => { refreshTransactions(); refreshStats(); refreshAuto(); }} />}
       {viewingTx && familyId && <TxDetailsSheet tx={viewingTx} categories={categories} familyId={familyId} onClose={() => setViewingTx(null)}
         onEdit={() => { setEditingTx(viewingTx); setViewingTx(null); }} onCopy={copyToClipboard}

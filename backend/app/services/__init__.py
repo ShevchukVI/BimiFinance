@@ -13,6 +13,9 @@ class BankAccount:
     name: str
     balance: float
     credit_limit: float = 0.0
+    kind: str = ""  # bank's card type (black, white, fop…)
+    currency: str = "UAH"
+    last4: str = ""
 
 @dataclass
 class BankTransaction:

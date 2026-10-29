@@ -152,7 +152,7 @@ def test_manual_fill_creates_expense_and_link_sheet(db, seeded):
         "vehicle_id": v.id, "kind": "fuel", "fuel": "lpg", "liters": 40, "price": 42.9, "amount": 1716, "odometer": 281900,
         "full_tank": True, "date": "2026-10-28", "create_transaction": True, "account": "Готівка"})
     tx = db.get(models.Transaction, r.json()["transaction_id"])
-    assert tx.category_id == cats["⛽ Паливо"].id and tx.title == "⛽ Газ 40 л по 42,9 грн, до повного"
+    assert tx.category_id == cats["⛽ Паливо"].id and tx.title == "Газ 40 л по 42,9 грн, до повного"
     assert tx.note == "Пробіг: 281900"
     # LinkSheet shows the car as the current link
     link = client.get(f"/families/{fid}/transactions/{tx.id}/link", headers=_hdr(fid)).json()

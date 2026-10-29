@@ -131,6 +131,7 @@ class TransactionOut(BaseModel):
     jar_id: Optional[int] = None
     obligation_id: Optional[int] = None  # кредит / розстрочка / підписка
     mcc: Optional[int] = None
+    auto_category: bool = False  # 🤖 Bimi розклав сам
     user_name: Optional[str] = None  # ім'я автора (атрибуція в Mini App)
     model_config = {"from_attributes": True}
 
@@ -154,8 +155,12 @@ class TransactionOut(BaseModel):
 class BankAccountOut(BaseModel):
     """Банківський рахунок з балансом (для Mini App Home)."""
     name: str
-    balance: float
+    balance: float  # own funds (bank balance minus the credit limit; negative = credit in use)
     currency: str = "UAH"
+    kind: str = ""
+    last4: str = ""
+    credit_limit: float = 0.0
+    available: Optional[float] = None  # what can be spent now, credit included
 
 
 class BankUserBalancesOut(BaseModel):

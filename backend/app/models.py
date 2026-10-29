@@ -9,6 +9,7 @@ class Family(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     invite_code = Column(String, unique=True, index=True, nullable=False)
+    smart_auto = Column(Boolean, nullable=False, default=True)  # «Bimi розкладає сам» new bank operations it is sure about
 
     memberships = relationship("FamilyMember", back_populates="family", cascade="all, delete-orphan")
     users = relationship("User", secondary="family_members", back_populates="families", viewonly=True)
@@ -71,6 +72,7 @@ class Transaction(Base):
     currency = Column(String, default="UAH", nullable=False)  # UAH/USD/EUR...
     jar_id = Column(Integer, ForeignKey("jars.id"), nullable=True)  # deposit/withdrawal to/from jar
     obligation_id = Column(Integer, ForeignKey("obligations.id", ondelete="SET NULL"), nullable=True)  # credit/subscription payment
+    auto_category = Column(Boolean, nullable=False, default=False)  # 🤖 categorised by Bimi, not yet touched by a person
     mcc = Column(Integer, nullable=True)  # Monobank merchant category code (5541 АЗС, 4111 транспорт…) — a hint for categories
     family = relationship("Family", back_populates="transactions")
     user = relationship("User", back_populates="transactions")
@@ -366,6 +368,16 @@ class VehicleLog(Base):
     source = Column(String, default="manual")  # manual | transaction | import
     transaction_id = Column(Integer, ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True, unique=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class SmartReject(Base):
+    """«Ні» to a suggestion: this merchant is not this category (Bimi stops offering it)."""
+    __tablename__ = "smart_rejects"
+    __table_args__ = (UniqueConstraint("family_id", "merchant", "category_id", name="uq_smart_reject"),)
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    merchant = Column(String, nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
 
 
 class VehicleDocument(Base):

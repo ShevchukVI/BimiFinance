@@ -117,7 +117,8 @@ async def family_bank_balances(family_id: int, _: None = Depends(require_family)
             user_name=u.name,
             provider="monobank",
             accounts=[schemas.BankAccountOut(
-                name=a.name, balance=round(a.balance - a.credit_limit, 2)
+                name=a.name, balance=round(a.balance - a.credit_limit, 2), currency=a.currency, kind=a.kind,
+                last4=a.last4, credit_limit=round(a.credit_limit, 2), available=round(a.balance, 2),
             ) for a in accounts],
         ))
 

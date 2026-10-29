@@ -24,7 +24,7 @@ export function TxRow({ tx, categories, onClick }: { tx: Transaction; categories
       end={<TxAmount tx={tx} />} onClick={onClick} />;
   }
   const pending = (cat?.name || '').includes('Очікує');
-  const sub = [tx.type === 'Переказ' ? 'Переказ' : cleanCatName(cat?.name), tx.user_name, tx.account !== 'Готівка' ? tx.account : null]
+  const sub = [tx.type === 'Переказ' ? 'Переказ' : `${tx.auto_category ? '🤖 ' : ''}${cleanCatName(cat?.name)}`, tx.user_name, tx.account !== 'Готівка' ? tx.account : null]
     .filter(Boolean).join(' · ');
   return (
     <Row icon={tx.type === 'Переказ' ? '↔️' : catIcon(cat)} title={pending ? tx.title.replace(/^❓\s*/, '') : tx.title}
