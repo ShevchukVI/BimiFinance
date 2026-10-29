@@ -215,10 +215,12 @@ def build_overview(db: Session, fid: int, today: Optional[date] = None) -> dict:
                 alerts.append({"level": "info", "kind": "pay", "provider_id": p.id,
                                "text": f"{p.name}: сплатити ≈ {debt:.0f} ₴ до {nd:%d.%m}"})
         # metered usage that the provider does not charge for (readings not passed?)
+        # one alert per kind of problem, from the newest bill (a stale reading repeats on every bill)
+        bill_warn = list({f["code"]: f for f in recent_warn}.values())[-2:]
         unbilled = _zero_accrual_usage(p, meters_by_p.get(p.id, []), pb, today)
-        if unbilled:
+        if unbilled and not any(f["code"] == "reading_mismatch" for f in bill_warn):
             alerts.append({"level": "warn", "kind": "bill", "provider_id": p.id, "text": unbilled})
-        for f in recent_warn[:2]:
+        for f in bill_warn:
             alerts.append({"level": "warn", "kind": "bill", "provider_id": p.id, "text": f"{p.name}: {f['text']}"})
         # missing bill for last month (providers that already have bills) — one combined alert
         if pb and p.service not in H.FIXED_SERVICES and today.day >= 10:

@@ -358,3 +358,8 @@ def test_stale_billed_reading_does_not_break_own_readings(seeded):
     assert sorted(h["value"] for h in hist) == [235, 242]  # 164 not stored on 01.10
     flag = next(f for f in b["flags"] if f["code"] == "reading_mismatch")
     assert flag["diff"] < 0 and "старим показником" in flag["text"]
+    client.post(f"/housing/families/{fid}/bills", headers=_hdr(fid), json={
+        "provider_id": prov, "period": "2026-08", "opening_balance": -287.08, "accrued": 0,
+        "lines": [{"meter_id": water, "label": "Вода", "prev_value": 164, "curr_value": 164, "tariff": 29.21, "amount": 0}]})
+    texts = [a["text"] for a in client.get(f"/housing/families/{fid}/overview", headers=_hdr(fid)).json()["alerts"]]
+    assert sum("старим показником" in t for t in texts) == 1  # same problem on two bills → one alert
