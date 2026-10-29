@@ -403,7 +403,22 @@ def get_family_stats(db: Session, family_id: int):
             "balances": {ACCOUNT_CASH: get_account_balance(db, family_id, ACCOUNT_CASH, DEFAULT_CURRENCY)},
             "cash_by_user": get_cash_balance_by_user(db, family_id),
             "by_currency": by_currency,
-            "cash_by_currency": get_cash_balance_by_currency(db, family_id)}
+            "cash_by_currency": get_cash_balance_by_currency(db, family_id),
+            "work": get_work_owed(db, family_id)}
+
+
+def get_work_owed(db: Session, family_id: int):
+    """«Прего винне»: opening + work expenses since work_since − their reimbursements (↩️ refunds).
+    A fee for our own work is an income + a «Робочі витрати» expense of the same amount (cash nets to 0)."""
+    fam = db.get(models.Family, family_id)
+    if not fam or not fam.work_payer or not fam.work_since:
+        return None
+    txs = (db.query(models.Transaction).join(models.Category)
+           .filter(models.Transaction.family_id == family_id, models.Transaction.date >= fam.work_since,
+                   models.Category.name.contains("Робоч")).all())
+    owed = (fam.work_opening or 0) + sum(-t.amount if t.refund else t.amount if t.type == TYPE_EXPENSE else 0
+                                         for t in txs if not _is_jar_tx(t))
+    return {"payer": fam.work_payer, "owed": round(owed, 2)}
 
 
 def _cash_delta(t_type: str, amt: float, is_jar: bool) -> float:

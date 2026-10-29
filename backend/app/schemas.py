@@ -219,6 +219,8 @@ class FamilyStatsOut(BaseModel):
     by_currency: dict = {}
     # Готівка по валютах (увесь час): [{"currency": "UAH", "balance": ..}, ...]
     cash_by_currency: List[CashByCurrencyOut] = []
+    # «<payer> винне»: {"payer": "Прего", "owed": 3455.0} (− = their money left with us); None if not set up
+    work: Optional[dict] = None
 class NoteCreate(BaseModel):
     family_id: int
     content: str

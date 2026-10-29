@@ -109,3 +109,22 @@ def test_refund_lowers_category_spending_not_income(seeded, db):
     # moved to an income category → the mark goes by itself
     r = client.put(f"/transactions/{r.json()['id']}", headers=BOT_HEADERS, json={"category_id": c["Зарплата"].id})
     assert r.json()["refund"] is False and gift.refund is False
+
+
+def test_work_owed_counts_costs_fees_and_reimbursements(seeded, db):
+    from app import models
+    fam, u = seeded["family"], seeded["admin"]
+    work = models.Category(family_id=fam.id, icon="💼", color="#000", name="Робочі витрати", type="expense")
+    db.add(work); db.commit()
+    today = date.today()
+    assert client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()["work"] is None
+    fam.work_payer, fam.work_since, fam.work_opening = "Прего", today, -473
+    db.commit()
+    make_tx(db, fam.id, u.id, work.id, 2384, "Витрати", title="GMhost", date=today)
+    make_tx(db, fam.id, u.id, work.id, 690, "Витрати", title="підтримка (послуга)", date=today)
+    back = make_tx(db, fam.id, u.id, work.id, 1000, "Поповнення", title="City24", date=today)
+    back.refund = True
+    make_tx(db, fam.id, u.id, work.id, 999, "Витрати", title="before", date=today.replace(year=today.year - 1))
+    db.commit()
+    w = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()["work"]
+    assert w == {"payer": "Прего", "owed": -473 + 2384 + 690 - 1000}

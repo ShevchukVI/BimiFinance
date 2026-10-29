@@ -10,6 +10,10 @@ class Family(Base):
     name = Column(String, nullable=False)
     invite_code = Column(String, unique=True, index=True, nullable=False)
     smart_auto = Column(Boolean, nullable=False, default=True)  # «Bimi розкладає сам» new bank operations it is sure about
+    # Employer that reimburses «Робочі витрати» (hostings bought on our card): «<payer> винне» on Home
+    work_payer = Column(String, nullable=True)
+    work_since = Column(Date, nullable=True)
+    work_opening = Column(Float, nullable=False, default=0)  # what they owed on work_since (− = their money left with us)
 
     memberships = relationship("FamilyMember", back_populates="family", cascade="all, delete-orphan")
     users = relationship("User", secondary="family_members", back_populates="families", viewonly=True)

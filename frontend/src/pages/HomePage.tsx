@@ -95,6 +95,13 @@ export default function HomePage({
               <b className="tnum">{money(saved, 'UAH', 0)}</b>
             </button>
           )}
+          {stats?.work && (
+            <div className="money-row">
+              <span className="money-row__icon">💼</span>
+              <span className="money-row__body"><span className="money-row__title">{stats.work.payer} винне</span><span className="money-row__sub">{stats.work.owed < 0 ? `їхній запас у вас ${money(-stats.work.owed, 'UAH', 0)}` : 'хостинги й послуги · поза сумою'}</span></span>
+              <b className="tnum">{money(Math.max(0, stats.work.owed), 'UAH', 0)}</b>
+            </div>
+          )}
           {!hasBank && (
             <button className="money-row" onClick={onMono}>
               <span className="money-row__icon">🏦</span>

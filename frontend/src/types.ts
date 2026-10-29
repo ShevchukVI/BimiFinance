@@ -1,7 +1,7 @@
 export interface Transaction { id: number; amount: number; type: string; title: string; account: string; date: string; category_id: number; note: string; user_name?: string | null; currency?: string; jar_id?: number | null; obligation_id?: number | null; auto_category?: boolean; mcc?: number | null; refund?: boolean; }
 export interface Category { id: number; name: string; icon: string; type: string; }
 export interface CashUserBalance { user_id: number; user_name: string; balance: number; currency?: string; }
-export interface Stats { income: number; expense: number; balance: number; top_categories: { name: string; amount: number }[]; pending_count: number; balances: Record<string, number>; cash_by_user?: CashUserBalance[]; by_currency?: Record<string, { income: number; expense: number }>; cash_by_currency?: { currency: string; balance: number }[]; }
+export interface Stats { income: number; expense: number; balance: number; top_categories: { name: string; amount: number }[]; pending_count: number; balances: Record<string, number>; cash_by_user?: CashUserBalance[]; by_currency?: Record<string, { income: number; expense: number }>; cash_by_currency?: { currency: string; balance: number }[]; work?: { payer: string; owed: number } | null; }
 export interface Note { id: number; content: string; }
 export interface Jar { id: number; name: string; balance: number; goal: number; currency?: string; mono_jar_id?: string | null; user_id?: number | null; synced_at?: string | null; }
 export interface FamilyMembership { family_id: number; name: string; role: string; is_active: boolean; }

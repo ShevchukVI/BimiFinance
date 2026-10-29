@@ -95,6 +95,9 @@ def run_migrations():
             "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS auto_category BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS refund BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE families ADD COLUMN IF NOT EXISTS smart_auto BOOLEAN NOT NULL DEFAULT TRUE",
+            "ALTER TABLE families ADD COLUMN IF NOT EXISTS work_payer VARCHAR",
+            "ALTER TABLE families ADD COLUMN IF NOT EXISTS work_since DATE",
+            "ALTER TABLE families ADD COLUMN IF NOT EXISTS work_opening DOUBLE PRECISION NOT NULL DEFAULT 0",
             "UPDATE vehicles SET driver_ids = CAST(user_id AS VARCHAR) WHERE driver_ids IS NULL AND user_id IS NOT NULL",
         ):
             conn.execute(text(stmt))
