@@ -40,7 +40,7 @@ export default function TxModal({
 
   // most used first; service categories («Балансування» — corrections of the cash balance) at the end
   const service = (c: Category) => c.name.includes('Балансування');
-  const filtered = categories.filter(c => c.type === (txType === 'Витрати' || refund ? 'expense' : 'income') && !c.name.includes('Очікує') && !(refund && service(c)))
+  const filtered = categories.filter(c => (c.type === (txType === 'Витрати' || refund ? 'expense' : 'income') || (!refund && c.name.includes('Переказ'))) && !c.name.includes('Очікує') && !(refund && service(c)))
     .map((c, i) => ({ c, i })).sort((a, b) => Number(service(a.c)) - Number(service(b.c))
       || (refund ? (refundUsage[b.c.id] || 0) - (refundUsage[a.c.id] || 0) : 0) || (usage[b.c.id] || 0) - (usage[a.c.id] || 0) || a.i - b.i)
     .map(x => x.c);

@@ -94,7 +94,7 @@ def apply(family_id: int, payload: ApplyIn, _: None = Depends(require_family), d
             continue
         tx = db.get(models.Transaction, it.transaction_id)
         refund = it.refund and tx.type != "Витрати"
-        if c.type != ("expense" if tx.type == "Витрати" or refund else "income"):
+        if c.type != ("expense" if tx.type == "Витрати" or refund else "income") and "Переказ" not in c.name:
             continue
         updated = crud.update_transaction(db, tx.id, {"category_id": c.id, "refund": refund})
         _sync_housing_payments(db, updated)

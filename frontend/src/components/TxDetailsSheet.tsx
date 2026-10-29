@@ -24,11 +24,12 @@ export default function TxDetailsSheet({ tx, categories, familyId, onClose, onEd
       </div>}>
       <div className="center" style={{ padding: '4px 0 8px' }}>
         <div style={{ fontSize: 40 }}>{tx.type === 'Переказ' ? '↔️' : catIcon(cat)}</div>
-        <div style={{ marginTop: 4 }}><TxAmount tx={tx} big /></div>
+        <div style={{ marginTop: 4 }}><TxAmount tx={tx} big internal={(cat?.name || '').includes('Переказ')} /></div>
         <div className="muted" style={{ marginTop: 4 }}>{tx.title}</div>
       </div>
       <Card>
         <KV k="Категорія" v={tx.type === 'Переказ' ? 'Переказ' : `${tx.refund ? '↩️ Повернення · ' : ''}${cat?.name || 'Інше'}`} />
+        {(cat?.name || '').includes('Переказ') && <div className="muted xsmall" style={{ margin: '-2px 0 6px' }}>👪 Гроші між вами — не дохід і не витрата. Витратою стане те, на що їх потратять.</div>}
         {tx.refund && <div className="muted xsmall" style={{ margin: '-2px 0 6px' }}>Зменшує витрати цієї категорії й конверт, у дохід не йде.</div>}
         {tx.auto_category && <div className="muted xsmall" style={{ margin: '-2px 0 6px' }}>🤖 Розклав Bimi — так ви завжди розкладали це місце. Не так? «Редагувати», і Bimi запам'ятає.</div>}
         <KV k="Дата" v={dmy(tx.date)} />

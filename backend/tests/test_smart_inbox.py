@@ -147,3 +147,46 @@ def test_refunds_learned_per_person_and_ordered(db, seeded):
     assert r.json()["applied"] == 1
     db.refresh(t)
     assert t.refund is True and t.category_id == c["🍻 Соціальні події"].id
+
+
+def test_family_transfer_pair_is_internal_and_auto(db, seeded):
+    # Вадим sends Аня 500: −500 «Сонце 💖» + «Від: Вадим Шевчук» +500 → «Переказ», not expense nor income
+    from datetime import date as _d
+    from app.services import analytics as A
+    fam, vadym, pend = seeded["family"], seeded["admin"], seeded["cats"]["Очікує"].id
+    anya = models.User(tg_id=777001, name="Аня")
+    db.add(anya); db.flush(); db.add(models.FamilyMember(family_id=fam.id, user_id=anya.id, role="member")); db.commit()
+    vadym.name = "Вадим"
+    tr = models.Category(family_id=fam.id, icon="🔄", name="🔄 Переказ", color="#000", type="income")
+    db.add(tr); db.commit()
+    today = _d.today()
+    out = make_tx(db, fam.id, vadym.id, pend, 500, "Витрати", title="❓ Сонце 💖", account="Монобанк", date=today)
+    r = client.post("/transactions", headers=BOT_HEADERS, json={
+        "family_id": fam.id, "user_id": anya.id, "category_id": pend, "amount": 500, "type": "Поповнення",
+        "title": "❓ Від: Вадим Шевчук", "account": "Монобанк", "date": today.isoformat()})
+    assert r.json()["category_id"] == tr.id and r.json()["auto_category"] is True
+    db.refresh(out)
+    assert out.category_id == tr.id  # the partner leg went with it
+    a = A.month_analytics(db, fam.id, today.replace(day=1), today=today)
+    assert a["expense"] == 0 and a["income"] == 0
+    assert client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()["expense"] == 0
+    # a friend's «Від: Олег» +200 and Вадим's 200 ₴ shop the same day: suggested at most, never auto
+    shop = make_tx(db, fam.id, vadym.id, pend, 200, "Витрати", title="❓ Сільпо", date=today)
+    friend = make_tx(db, fam.id, anya.id, pend, 200, "Поповнення", title="❓ Від: Олег", date=today)
+    s = smart.Brain(db, fam.id).suggest(friend)
+    assert s["source"] == "family" and s["auto"] is False and shop.id == s["pair_id"]
+
+
+def test_family_transfer_pairs_closest_mutual_leg(db, seeded):
+    # 19.08 −400 bowling (Микола) must not take the pair of 20.08 «На каву» −400 «Сонце 💖» / +400 «Від: Вадим»
+    from datetime import date as _d
+    fam, vadym, pend = seeded["family"], seeded["admin"], seeded["cats"]["Очікує"].id
+    anya = models.User(tg_id=777002, name="Аня")
+    db.add(anya); db.flush(); db.add(models.FamilyMember(family_id=fam.id, user_id=anya.id, role="member"))
+    db.add(models.Category(family_id=fam.id, icon="🔄", name="🔄 Переказ", color="#000", type="income")); db.commit()
+    bowling = make_tx(db, fam.id, vadym.id, pend, 400, "Витрати", title="❓ Микола К.", date=_d(2026, 8, 19))
+    got = make_tx(db, fam.id, anya.id, pend, 400, "Поповнення", title="❓ Від: Вадим Шевчук (На каву)", date=_d(2026, 8, 20))
+    sent = make_tx(db, fam.id, vadym.id, pend, 400, "Витрати", title="❓ Сонце 💖 (На каву)", date=_d(2026, 8, 20))
+    b = smart.Brain(db, fam.id)
+    assert b.transfer_pair(got).id == sent.id and b.transfer_pair(sent).id == got.id
+    assert b.transfer_pair(bowling) is None

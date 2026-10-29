@@ -31,12 +31,13 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
   const [open, setOpen] = useState<string | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
   const [showLikely, setShowLikely] = useState(false);
-  const usable = (c: Category, type: string) => c.type === type && !c.name.includes('Очікує') && !c.name.includes('Балансування');
+  // «Переказ» (money between family members) fits both directions
+  const usable = (c: Category, type: string) => (c.type === type || c.name.includes('Переказ')) && !c.name.includes('Очікує') && !c.name.includes('Балансування');
   const pickable = (tx: Transaction) => categories.filter(c => usable(c, tx.type === 'Витрати' ? 'expense' : 'income'));
   // incoming money can also be a refund for a purchase (friends paid their share) → lowers that expense category
   // order learned from earlier refunds (friends usually pay back for social events, work trips…)
   const refundRank = (id: number) => { const i = smart?.refund_order?.indexOf(id) ?? -1; return i < 0 ? 999 : i; };
-  const refundable = (tx: Transaction) => tx.type === 'Витрати' ? [] : categories.filter(c => usable(c, 'expense'))
+  const refundable = (tx: Transaction) => tx.type === 'Витрати' ? [] : categories.filter(c => usable(c, 'expense') && !c.name.includes('Переказ'))
     .map((c, i) => ({ c, i })).sort((a, b) => refundRank(a.c.id) - refundRank(b.c.id) || a.i - b.i).map(x => x.c);
   const cat = (id: number) => categories.find(c => c.id === id);
 
@@ -115,7 +116,7 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
             </div>
             <span className="badge badge--accent" style={{ marginLeft: 8 }}>{g.refund ? '↩️ ' : ''}{catIcon(c)} {cleanCatName(c?.name)}</span>
           </div>
-          <div className="muted xsmall">{g.refund ? '↩️ Повернення за покупку · ' : ''}{g.source === 'history' ? `✨ ${g.reason}` : g.source === 'mcc' ? `🏷️ За типом продавця: ${g.reason}` : `🏪 Відома мережа: ${g.reason}`}</div>
+          <div className="muted xsmall">{g.refund ? '↩️ Повернення за покупку · ' : ''}{g.source === 'family' ? `👪 ${g.reason[0].toUpperCase()}${g.reason.slice(1)} — не дохід і не витрата` : g.source === 'history' ? `✨ ${g.reason}` : g.source === 'mcc' ? `🏷️ За типом продавця: ${g.reason}` : `🏪 Відома мережа: ${g.reason}`}</div>
           {open === k && txs.length > 0 && (
             <div className="inbox-peek">
               {txs.map(t => <div key={t.id} className="spread small"><span className="muted">{day(t.date)}{t.user_name ? ` · ${t.user_name}` : ''}</span><span className="tnum">{money(t.amount)}</span></div>)}

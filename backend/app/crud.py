@@ -355,6 +355,13 @@ def _is_jar_tx(t) -> bool:
     return getattr(t, "jar_id", None) is not None
 
 
+def is_family_transfer(t) -> bool:
+    """Гроші між членами сім'ї (категорія «Переказ»: −500 у Вадима, +500 в Ані) — не дохід і не витрата;
+    витратою стане те, на що їх потратять."""
+    cat = getattr(t, "category", None)
+    return cat is not None and "Переказ" in (cat.name or "")
+
+
 def _add_to_currency_bucket(bucket: dict, currency: str, income: float = 0.0, expense: float = 0.0):
     cur = bucket.setdefault(currency, {"income": 0.0, "expense": 0.0})
     cur["income"] = round(cur["income"] + income, 2)
@@ -374,6 +381,8 @@ def get_family_stats(db: Session, family_id: int):
     cats = {}  # top categories за UAH (зворотна сумісність)
     for t in txs:
         cur = t.currency or DEFAULT_CURRENCY
+        if is_family_transfer(t):
+            continue
         if t.refund or t.type == TYPE_EXPENSE:  # ↩️ refund = minus spending in its category, not income
             if not _is_jar_tx(t):
                 amt = -t.amount if t.refund else t.amount

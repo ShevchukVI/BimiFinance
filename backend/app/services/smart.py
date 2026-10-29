@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
+from datetime import timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -80,6 +81,7 @@ class Brain:
     """What the family taught Bimi: merchant → [(amount, category, type)] from every categorised operation."""
 
     def __init__(self, db: Session, family_id: int):
+        self.db, self.family_id = db, family_id
         self.cats = db.query(models.Category).filter(models.Category.family_id == family_id).all()
         self.by_id = {c.id: c for c in self.cats}
         usable = {c.id for c in self.cats if not any(s in c.name for s in SYSTEM)}
@@ -104,15 +106,46 @@ class Brain:
         t = _ctype(tx_type)
         return [c for c in self.cats if c.type == t and not any(s in c.name for s in SYSTEM)]
 
+    def _closest_leg(self, tx):
+        if tx.jar_id is not None or tx.type not in ("Витрати", "Поповнення") or not tx.date:
+            return None
+        T = models.Transaction
+        cands = (self.db.query(T).filter(T.family_id == self.family_id, T.id != tx.id, T.user_id != tx.user_id,
+                                         T.amount == tx.amount, T.jar_id.is_(None),
+                                         T.type == ("Поповнення" if tx.type == "Витрати" else "Витрати"),
+                                         T.date >= tx.date - timedelta(days=1), T.date <= tx.date + timedelta(days=1)).all())
+        return min(cands, key=lambda t: (abs((t.date - tx.date).days), abs(t.id - tx.id)), default=None)
+
+    def transfer_pair(self, tx):
+        """The other leg of money sent between family members: same amount, opposite direction, another
+        member, within a day (−500 «Сонце 💖» at Вадим ↔ +500 «Від: Вадим Шевчук» at Аня). Closest in
+        time and mutual, so a 400 ₴ bowling the day before does not steal the pair of a 400 ₴ «На каву»."""
+        pair = self._closest_leg(tx)
+        if pair is None:
+            return None
+        back = self._closest_leg(pair)
+        return pair if back is not None and back.id == tx.id else None
+
     def suggest(self, tx) -> Optional[dict]:
-        """→ {category_id, confidence: sure|likely, reason, source: history|mcc|chain} or None."""
+        """→ {category_id, confidence: sure|likely, reason, source: family|history|mcc|chain} or None."""
+        transfer = next((c for c in self.cats if "Переказ" in c.name), None)
+        pair = self.transfer_pair(tx) if transfer else None
+        incoming, outgoing = (tx, pair) if tx.type == "Поповнення" else (pair, tx)
+        # the incoming leg must be a card transfer («Від: …»), else a friend's +200 and a 200 ₴ shop the same day would pair
+        if pair is not None and re.match(r"^(❓\s*)?Від:", incoming.title or ""):
+            sender = (outgoing.user.name if outgoing.user else "") or "?"
+            receiver = (incoming.user.name if incoming.user else "") or "?"
+            certain = sender.lower() in (incoming.title or "").lower()  # «Від: Вадим Шевчук» from Вадим
+            return {"category_id": transfer.id, "confidence": "sure" if certain else "likely", "source": "family",
+                    "pair_id": pair.id, "auto": certain,
+                    "reason": f"переказ між вами ({sender} → {receiver})"}
         key = merchant_key(tx.title)
         a = tx.amount or 0
         ct = _ctype(tx.type)
         # an incoming transfer from a person who usually pays back (↩️) learns the refund category too
         hist = [(x, (c, r)) for x, c, typ, r in self.hist.get(key, [])
                 if typ == tx.type and c in self.by_id and (key, c) not in self.rejects
-                and (self.by_id[c].type == ct or (r and ct == "income"))]
+                and (self.by_id[c].type == ct or (r and ct == "income") or "Переказ" in self.by_id[c].name)]
         if hist:
             near = [c for x, c in hist if abs(x - a) <= max(0.25 * a, 15)]
             pool = near or [c for _, c in hist]
@@ -205,6 +238,10 @@ def auto_categorize(db: Session, tx) -> bool:
         from app.crud import _clean_pending_title
         tx.category_id, tx.title, tx.auto_category = s["category_id"], _clean_pending_title(tx.title), True
         tx.refund = bool(s.get("refund"))
+        pair = db.get(models.Transaction, s["pair_id"]) if s.get("pair_id") else None
+        pcat = db.get(models.Category, pair.category_id) if pair is not None and pair.category_id else None
+        if pcat is not None and "Очікує" in pcat.name:
+            pair.category_id, pair.title, pair.auto_category = s["category_id"], _clean_pending_title(pair.title), True
         db.commit()
         db.refresh(tx)
         return True

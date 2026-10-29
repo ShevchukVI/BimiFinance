@@ -8,10 +8,10 @@ export const catIcon = (cat?: Category) => {
   return cat?.icon && cat.icon !== '•' ? cat.icon : (m ? m[0] : '💸');
 };
 
-export function TxAmount({ tx, big }: { tx: Transaction; big?: boolean }) {
+export function TxAmount({ tx, big, internal }: { tx: Transaction; big?: boolean; internal?: boolean }) {
   const cur = tx.currency || 'UAH';
   const style = big ? { fontSize: 34, fontWeight: 800 } : { fontWeight: 600 };
-  if (tx.type === 'Переказ' || tx.jar_id) return <span className="muted" style={style}>↔ {money(Math.abs(tx.amount), cur)}</span>;
+  if (tx.type === 'Переказ' || tx.jar_id || internal) return <span className="muted" style={style}>↔ {money(Math.abs(tx.amount), cur)}</span>;
   const income = tx.type !== 'Витрати';
   return <span className={income ? 'pos' : ''} style={style}>{income ? '+' : '−'}{money(tx.amount, cur)}</span>;
 }
@@ -29,7 +29,7 @@ export function TxRow({ tx, categories, onClick }: { tx: Transaction; categories
   return (
     <Row icon={tx.type === 'Переказ' ? '↔️' : catIcon(cat)} title={pending ? tx.title.replace(/^❓\s*/, '') : tx.title}
       sub={pending ? <span className="warn">Очікує категорію · {tx.account}</span> : sub}
-      end={<TxAmount tx={tx} />} onClick={onClick} />
+      end={<TxAmount tx={tx} internal={(cat?.name || '').includes('Переказ')} />} onClick={onClick} />
   );
 }
 
