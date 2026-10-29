@@ -4,7 +4,7 @@ import { toast } from '../toast';
 import { Transaction, Category, CURRENCIES, cleanCatName } from '../types';
 import { parseNum, todayIso } from '../format';
 import { confirmAsync, haptic } from '../tg';
-import { Button, Chips, Field, Segmented, Sheet } from '../ui';
+import { Button, Chips, Field, Segmented, Sheet, Switch } from '../ui';
 
 type TxType = 'Витрати' | 'Поповнення';
 
@@ -34,10 +34,12 @@ export default function TxModal({
   const [more, setMore] = useState(!!(editingTx && (editingTx.note || editingTx.currency !== 'UAH')));
   const [busy, setBusy] = useState(false);
   const [allCats, setAllCats] = useState(false);
+  // ↩️ money back for a purchase (friends paid their share, a return): income filed under the expense category it lowers
+  const [refund, setRefund] = useState(!!editingTx?.refund);
 
   // most used first; service categories («Балансування» — corrections of the cash balance) at the end
   const service = (c: Category) => c.name.includes('Балансування');
-  const filtered = categories.filter(c => c.type === (txType === 'Витрати' ? 'expense' : 'income') && !c.name.includes('Очікує'))
+  const filtered = categories.filter(c => c.type === (txType === 'Витрати' || refund ? 'expense' : 'income') && !c.name.includes('Очікує') && !(refund && service(c)))
     .map((c, i) => ({ c, i })).sort((a, b) => Number(service(a.c)) - Number(service(b.c)) || (usage[b.c.id] || 0) - (usage[a.c.id] || 0) || a.i - b.i)
     .map(x => x.c);
   const TOP = 8;
@@ -52,7 +54,7 @@ export default function TxModal({
     const payload = {
       amount: amountNum, type: txType, category_id: categoryId,
       title: title.trim() || cleanCatName(categories.find(c => c.id === categoryId)?.name),
-      date, note: note.trim(), currency,
+      date, note: note.trim(), currency, refund: txType === 'Поповнення' && refund,
     };
     try {
       const r = editingTx
@@ -89,13 +91,20 @@ export default function TxModal({
         <Button onClick={save} disabled={!valid} busy={busy}>{editingTx ? 'Зберегти' : 'Записати'}</Button>
         {editingTx && <Button variant="danger" onClick={remove} disabled={busy}>Видалити</Button>}
       </>}>
-      <Segmented value={txType} onChange={t => { setTxType(t); setCategoryId(null); }}
+      <Segmented value={txType} onChange={t => { setTxType(t); setCategoryId(null); setRefund(false); }}
         options={[{ value: 'Витрати', label: 'Витрата' }, { value: 'Поповнення', label: 'Дохід' }]} />
 
       <input className="input input--big tnum" inputMode="decimal" placeholder="0 ₴" value={amount}
         autoFocus={!editingTx} onChange={e => setAmount(e.target.value)} aria-label="Сума" />
 
-      <Field label="Категорія">
+      {txType === 'Поповнення' && (
+        <div className="spread">
+          <div style={{ minWidth: 0 }}><div className="bold">↩️ Повернення за покупку</div>
+            <div className="muted small">Друзі віддали свою частку, повернули товар — зменшує витрати категорії й конверт, а не дохід</div></div>
+          <Switch on={refund} onChange={v => { setRefund(v); setCategoryId(null); }} label="Повернення за покупку" />
+        </div>
+      )}
+      <Field label={refund ? 'За що повернули' : 'Категорія'}>
         <Chips value={categoryId} onChange={setCategoryId} options={shown.map(c => ({ value: c.id, label: c.name }))} />
         {shown.length < filtered.length && (
           <button className="link" style={{ alignSelf: 'flex-start', marginTop: 4 }} onClick={() => setAllCats(true)}>Усі категорії ({filtered.length}) ›</button>

@@ -95,6 +95,7 @@ class TransactionCreate(BaseModel):
     currency: str = "UAH"
     jar_id: Optional[int] = None  # поповнення/зняття до/з скарбнички
     mcc: Optional[int] = None  # Monobank MCC
+    refund: bool = False  # ↩️ повернення витрати: дохід у категорії витрат, зменшує витрати й конверт
 class TransactionUpdate(BaseModel):
     amount: Optional[float] = None
     type: Optional[str] = None
@@ -102,6 +103,7 @@ class TransactionUpdate(BaseModel):
     note: Optional[str] = None
     category_id: Optional[int] = None
     currency: Optional[str] = None
+    refund: Optional[bool] = None
     # NOTE: pydantic 2.13.4 баг — 'Optional[date] = None' завжди падає з
     # 'none_required' для будь-якого введення. Тому приймаємо str і парсимо
     # у crud-шарі (див. crud._coerce_date).
@@ -132,6 +134,7 @@ class TransactionOut(BaseModel):
     obligation_id: Optional[int] = None  # кредит / розстрочка / підписка
     mcc: Optional[int] = None
     auto_category: bool = False  # 🤖 Bimi розклав сам
+    refund: bool = False  # ↩️ повернення витрати
     user_name: Optional[str] = None  # ім'я автора (атрибуція в Mini App)
     model_config = {"from_attributes": True}
 

@@ -87,3 +87,25 @@ def test_transactions_filter_by_month_and_category(seeded, db):
     make_tx(db, fam.id, u.id, c["Продукти"].id, 30, "Витрати", date="2026-10-02")
     r = client.get(f"/families/{fam.id}/transactions?month=2026-10&category_id={c['Кафе'].id}", headers=_hdr(fam.id)).json()
     assert [t["amount"] for t in r] == [20]
+
+
+def test_refund_lowers_category_spending_not_income(seeded, db):
+    # friends paid back their share of a Fora purchase: −expense in «Продукти», not income
+    fam, u, c = seeded["family"], seeded["admin"], seeded["cats"]
+    today = date.today()
+    make_tx(db, fam.id, u.id, c["Продукти"].id, 1414, "Витрати", title="Фора", date=today)
+    gift = make_tx(db, fam.id, u.id, c["Продукти"].id, 500, "Поповнення", title="подарунок", date=today)  # no mark → income
+    r = client.post("/transactions", headers=BOT_HEADERS, json={
+        "family_id": fam.id, "user_id": u.id, "category_id": c["Продукти"].id, "amount": 249, "type": "Поповнення",
+        "title": "Від: Dubovyk David", "account": "Монобанк", "date": today.isoformat(), "refund": True})
+    assert r.json()["refund"] is True
+    a = A.month_analytics(db, fam.id, today.replace(day=1), today=today)
+    assert a["expense"] == 1414 - 249 and a["income"] == 500
+    assert next(x for x in a["categories"] if x["name"] == "Продукти")["amount"] == 1165
+    client.post(f"/families/{fam.id}/budgets/bulk", headers=_hdr(fam.id), json={"items": [{"category_id": c["Продукти"].id, "amount": 1200}]})
+    assert A.budgets_status(db, fam.id, today.replace(day=1), today=today)["items"][0]["spent"] == 1165
+    st = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()
+    assert st["expense"] == 1165 and st["income"] == 500
+    # moved to an income category → the mark goes by itself
+    r = client.put(f"/transactions/{r.json()['id']}", headers=BOT_HEADERS, json={"category_id": c["Зарплата"].id})
+    assert r.json()["refund"] is False and gift.refund is False

@@ -73,6 +73,7 @@ class Transaction(Base):
     jar_id = Column(Integer, ForeignKey("jars.id"), nullable=True)  # deposit/withdrawal to/from jar
     obligation_id = Column(Integer, ForeignKey("obligations.id", ondelete="SET NULL"), nullable=True)  # credit/subscription payment
     auto_category = Column(Boolean, nullable=False, default=False)  # 🤖 categorised by Bimi, not yet touched by a person
+    refund = Column(Boolean, nullable=False, default=False)  # ↩️ money back for a purchase (friends paid their share, return): income in an expense category, counted as −expense
     mcc = Column(Integer, nullable=True)  # Monobank merchant category code (5541 АЗС, 4111 транспорт…) — a hint for categories
     family = relationship("Family", back_populates="transactions")
     user = relationship("User", back_populates="transactions")

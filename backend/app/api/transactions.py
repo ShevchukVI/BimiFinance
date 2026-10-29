@@ -52,6 +52,9 @@ def create_transaction(tx: schemas.TransactionCreate, actor: Actor = Depends(get
     obj = crud.create_transaction(db, family_id, user_id, tx.category_id, tx.amount, tx.type, tx.title,
                                   tx.note, tx.account, tx.date, tx.mono_id,
                                   currency=tx.currency, jar_id=tx.jar_id, mcc=tx.mcc)
+    if tx.refund:
+        obj.refund = True
+        _refund_sane(db, obj)
     # credit / subscription / housing payment recognised by its bank description → linked automatically
     if auto_link(db, obj):
         db.refresh(obj)
@@ -95,9 +98,21 @@ def update_transaction(tx_id: int, payload: schemas.TransactionUpdate, actor: Ac
     data = payload.model_dump(exclude_unset=True)
     _person_categorised(db, tx, data)
     updated = crud.update_transaction(db, tx_id, data)
+    _refund_sane(db, updated)
     _sync_housing_payments(db, updated)
     _sync_vehicle_log(db, updated)
     return updated
+
+
+def _refund_sane(db: Session, tx) -> None:
+    """↩️ only an incoming operation filed under an expense category can be a refund; otherwise the mark goes."""
+    if tx is None or not tx.refund:
+        return
+    cat = db.get(models.Category, tx.category_id) if tx.category_id else None
+    if tx.type == "Витрати" or tx.jar_id or cat is None or cat.type != "expense" or any(s in cat.name for s in smart.SYSTEM):
+        tx.refund = False
+    db.commit()
+    db.refresh(tx)
 
 
 def _person_categorised(db: Session, tx, data: dict) -> None:

@@ -374,15 +374,16 @@ def get_family_stats(db: Session, family_id: int):
     cats = {}  # top categories за UAH (зворотна сумісність)
     for t in txs:
         cur = t.currency or DEFAULT_CURRENCY
-        if t.type == TYPE_INCOME or "Дохід" in t.type:
+        if t.refund or t.type == TYPE_EXPENSE:  # ↩️ refund = minus spending in its category, not income
             if not _is_jar_tx(t):
-                _add_to_currency_bucket(by_currency, cur, income=t.amount)
-        elif t.type == TYPE_EXPENSE:
-            if not _is_jar_tx(t):
-                _add_to_currency_bucket(by_currency, cur, expense=t.amount)
+                amt = -t.amount if t.refund else t.amount
+                _add_to_currency_bucket(by_currency, cur, expense=amt)
                 if cur == DEFAULT_CURRENCY:
                     cat_name = t.category.name if t.category else "Інше"
-                    cats[cat_name] = cats.get(cat_name, 0) + t.amount
+                    cats[cat_name] = cats.get(cat_name, 0) + amt
+        elif t.type == TYPE_INCOME or "Дохід" in t.type:
+            if not _is_jar_tx(t):
+                _add_to_currency_bucket(by_currency, cur, income=t.amount)
     # Зворотна сумісність: income/expense/balance — у UAH.
     uah = by_currency.get(DEFAULT_CURRENCY, {"income": 0.0, "expense": 0.0})
     income, expense = uah["income"], uah["expense"]

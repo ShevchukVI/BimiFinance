@@ -2,6 +2,7 @@
 
 Rules (same as the Home stats): expenses = type «Витрати», incomes = «Поповнення» (or
 «Дохід…»); jar operations and transfers are internal movements and never counted.
+A refund (↩️ money back for a purchase) is not income: it lowers the expense of its category.
 Category breakdown, budgets and trends are in UAH; other currencies only as totals.
 """
 from __future__ import annotations
@@ -28,7 +29,14 @@ def parse_month(value: Optional[str], today: Optional[date] = None) -> date:
 
 
 def _is_income(t) -> bool:
-    return t.type == "Поповнення" or "Дохід" in (t.type or "")
+    return (t.type == "Поповнення" or "Дохід" in (t.type or "")) and not t.refund
+
+
+def spent(t) -> float:
+    """Effect on spending: an expense +, a refund −, anything else 0 (jar moves and transfers excluded)."""
+    if t.jar_id is not None or t.type == "Переказ":
+        return 0.0
+    return t.amount if t.type == "Витрати" else -t.amount if t.refund else 0.0
 
 
 def _counted(t) -> bool:
@@ -50,8 +58,8 @@ def _month_totals(txs) -> dict:
     for t in txs:
         if not _counted(t) or (t.currency or UAH) != UAH:
             continue
-        if t.type == "Витрати":
-            out["expense"] += t.amount
+        if spent(t):
+            out["expense"] += spent(t)
         elif _is_income(t):
             out["income"] += t.amount
     return {k: round(v, 2) for k, v in out.items()}
@@ -82,8 +90,8 @@ def month_analytics(db: Session, fid: int, month: date, today: Optional[date] = 
     def cat_sums(items) -> dict:
         s: dict = defaultdict(float)
         for t in items:
-            if t.type == "Витрати" and _counted(t) and (t.currency or UAH) == UAH:
-                s[t.category_id] += t.amount
+            if spent(t) and (t.currency or UAH) == UAH:
+                s[t.category_id] += spent(t)
         return s
 
     cur_c, prev_c = cat_sums(cur), cat_sums(by_month.get(prev_m, []))
@@ -116,14 +124,16 @@ def month_analytics(db: Session, fid: int, month: date, today: Optional[date] = 
         if not _counted(t):
             continue
         if (t.currency or UAH) != UAH:
-            key = "expense" if t.type == "Витрати" else "income" if _is_income(t) else None
+            key = "expense" if spent(t) else "income" if _is_income(t) else None
             if key:
-                other_cur[t.currency][key] = round(other_cur[t.currency][key] + t.amount, 2)
+                other_cur[t.currency][key] = round(other_cur[t.currency][key] + (spent(t) or t.amount), 2)
             continue
-        if t.type != "Витрати":
+        if not spent(t):
             continue
-        daily[t.date.isoformat()] += t.amount
-        by_user[users.get(t.user_id, "—")] += t.amount
+        daily[t.date.isoformat()] += spent(t)
+        by_user[users.get(t.user_id, "—")] += spent(t)
+        if t.refund:
+            continue
         m = merchants[_clean(t.title)]
         m[0] += t.amount
         m[1] += 1
@@ -183,15 +193,15 @@ def budgets_status(db: Session, fid: int, month: date, today: Optional[date] = N
     today = today or today_kyiv()
     budgets = db.query(models.Budget).filter(models.Budget.family_id == fid).all()
     cats = {c.id: c for c in db.query(models.Category).filter(models.Category.family_id == fid)}
-    spent: dict = defaultdict(float)
+    used: dict = defaultdict(float)
     for t in _txs(db, fid, month, month_end(month)):
-        if t.type == "Витрати" and _counted(t) and (t.currency or UAH) == UAH:
-            spent[t.category_id] += t.amount
+        if spent(t) and (t.currency or UAH) == UAH:
+            used[t.category_id] += spent(t)
     done, dim = elapsed_days(month, today)
     items = []
     for b in budgets:
         c = cats.get(b.category_id)
-        s = round(spent.get(b.category_id, 0.0), 2)
+        s = round(used.get(b.category_id, 0.0), 2)
         fc = round(s / done * dim, 2) if 0 < done < dim else s
         pct = round(s / b.amount * 100, 1) if b.amount else 0.0
         status = "over" if s > b.amount else ("warn" if pct >= 80 or fc > b.amount * 1.05 else "ok")
@@ -213,8 +223,8 @@ def suggest_budgets(db: Session, fid: int, today: Optional[date] = None) -> list
     sums: dict = defaultdict(float)
     for t in db.query(models.Transaction).filter(models.Transaction.family_id == fid, models.Transaction.date >= start,
                                                  models.Transaction.date < m0).all():
-        if t.type == "Витрати" and _counted(t) and (t.currency or UAH) == UAH and t.category_id in cats:
-            sums[t.category_id] += t.amount
+        if spent(t) and (t.currency or UAH) == UAH and t.category_id in cats:
+            sums[t.category_id] += spent(t)
     budgets = {b.category_id: b.amount for b in db.query(models.Budget).filter(models.Budget.family_id == fid)}
     out = []
     for cid, total in sums.items():

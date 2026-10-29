@@ -31,8 +31,10 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
   const [open, setOpen] = useState<string | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
   const [showLikely, setShowLikely] = useState(false);
-  const pickable = (tx: Transaction) => categories.filter(
-    c => c.type === (tx.type === 'Витрати' ? 'expense' : 'income') && !c.name.includes('Очікує') && !c.name.includes('Балансування'));
+  const usable = (c: Category, type: string) => c.type === type && !c.name.includes('Очікує') && !c.name.includes('Балансування');
+  const pickable = (tx: Transaction) => categories.filter(c => usable(c, tx.type === 'Витрати' ? 'expense' : 'income'));
+  // incoming money can also be a refund for a purchase (friends paid their share) → lowers that expense category
+  const refundable = (tx: Transaction) => tx.type === 'Витрати' ? [] : categories.filter(c => usable(c, 'expense'));
   const cat = (id: number) => categories.find(c => c.id === id);
 
   const load = async () => {
@@ -78,16 +80,16 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
   const acceptGroup = (g: Group) => applyIds(g.transaction_ids.filter(id => !doneIds.has(id)).map(id => ({ transaction_id: id, category_id: g.category_id })), gkey(g));
   const acceptAllSure = () => applyIds(sure.flatMap(g => g.transaction_ids.filter(id => !doneIds.has(id)).map(id => ({ transaction_id: id, category_id: g.category_id }))), 'all');
 
-  const assign = async (tx: Transaction, catId: number) => {
+  const assign = async (tx: Transaction, catId: number, refund = false) => {
     if (savingId !== null) return;
     setSavingId(tx.id);
     try {
-      const r = await api.put(`/transactions/${tx.id}`, { category_id: catId });
+      const r = await api.put(`/transactions/${tx.id}`, { category_id: catId, refund });
       doneIds.add(tx.id);
       setItems(prev => prev.filter(t => t.id !== tx.id));
       setSmart(s => s && { ...s, pending: Math.max(0, s.pending - 1) });
       haptic('success');
-      toast('Категорію призначено');
+      toast(refund ? 'Записано як повернення — витрати категорії зменшились' : 'Категорію призначено');
       onCategorized(r.data);
     } catch {
       toast('Помилка збереження', 'err');
@@ -183,6 +185,11 @@ export default function InboxModal({ familyId, categories, onClose, onCategorize
                   </div>
                   <Chips scroll small value={null} onChange={id => assign(tx, id)}
                     options={ordered.map(c => ({ value: c.id, label: h && c.id === h.category_id ? `✨ ${c.name}` : c.name }))} />
+                  {refundable(tx).length > 0 && <>
+                    <div className="muted xsmall">↩️ Або це повернення за покупку — оберіть, за що:</div>
+                    <Chips scroll small value={null} onChange={id => assign(tx, id, true)}
+                      options={refundable(tx).map(c => ({ value: c.id, label: c.name }))} />
+                  </>}
                 </div>
               </Card>
             );
