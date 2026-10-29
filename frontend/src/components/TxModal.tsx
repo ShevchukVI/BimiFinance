@@ -10,8 +10,9 @@ type TxType = 'Витрати' | 'Поповнення';
 
 // Додавання/редагування транзакції. editingTx == null → режим створення.
 export default function TxModal({
-  editingTx, categories, familyId, dbUserId, accounts, onClose, onSaved, onDeleted, initialType = 'Витрати',
+  editingTx, categories, familyId, dbUserId, accounts, onClose, onSaved, onDeleted, initialType = 'Витрати', usage = {},
 }: {
+  usage?: Record<number, number>;  // category id → how often it was used lately (most used first)
   editingTx: Transaction | null;
   categories: Category[];
   familyId: number;
@@ -32,8 +33,16 @@ export default function TxModal({
   const [currency, setCurrency] = useState<string>(editingTx?.currency || 'UAH');
   const [more, setMore] = useState(!!(editingTx && (editingTx.note || editingTx.currency !== 'UAH')));
   const [busy, setBusy] = useState(false);
+  const [allCats, setAllCats] = useState(false);
 
-  const filtered = categories.filter(c => c.type === (txType === 'Витрати' ? 'expense' : 'income') && !c.name.includes('Очікує'));
+  // most used first; service categories («Балансування» — corrections of the cash balance) at the end
+  const service = (c: Category) => c.name.includes('Балансування');
+  const filtered = categories.filter(c => c.type === (txType === 'Витрати' ? 'expense' : 'income') && !c.name.includes('Очікує'))
+    .map((c, i) => ({ c, i })).sort((a, b) => Number(service(a.c)) - Number(service(b.c)) || (usage[b.c.id] || 0) - (usage[a.c.id] || 0) || a.i - b.i)
+    .map(x => x.c);
+  const TOP = 8;
+  const shown = allCats || filtered.length <= TOP + 1 ? filtered
+    : [...filtered.slice(0, TOP), ...filtered.slice(TOP).filter(c => c.id === categoryId)];
   const amountNum = parseNum(amount);
   const valid = Number.isFinite(amountNum) && amountNum > 0 && categoryId !== null;
 
@@ -87,9 +96,10 @@ export default function TxModal({
         autoFocus={!editingTx} onChange={e => setAmount(e.target.value)} aria-label="Сума" />
 
       <Field label="Категорія">
-        <div style={{ maxHeight: 176, overflowY: 'auto' }}>
-          <Chips value={categoryId} onChange={setCategoryId} options={filtered.map(c => ({ value: c.id, label: c.name }))} />
-        </div>
+        <Chips value={categoryId} onChange={setCategoryId} options={shown.map(c => ({ value: c.id, label: c.name }))} />
+        {shown.length < filtered.length && (
+          <button className="link" style={{ alignSelf: 'flex-start', marginTop: 4 }} onClick={() => setAllCats(true)}>Усі категорії ({filtered.length}) ›</button>
+        )}
       </Field>
 
       <input className="input" placeholder="Що купили? (необов'язково)" value={title} onChange={e => setTitle(e.target.value)} />

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, Cell, ComposedChart, Line, Pie, PieChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { toast } from '../toast';
 import { COLORS, Category, Transaction, cleanCatName } from '../types';
-import { addMonthsIso, inMonth, money, monthName, monthShort, monthYear, todayIso } from '../format';
+import { addMonthsIso, inMonth, money, monthName, monthShort, monthYear, plural, todayIso } from '../format';
 import { Banner, Button, Card, Empty, IconButton, Progress, Row, Section, Spinner } from '../ui';
 import { errText } from '../housing/api';
 import { cssVar } from '../housing/chart';
@@ -99,7 +99,7 @@ export default function AnalyticsPage({ familyId, categories, onView, onBudgetsC
             <ResponsiveContainer>
               <BarChart data={trend} margin={{ top: 6, right: 0, left: -10, bottom: 0 }} onClick={(e: any) => { const m = e?.activePayload?.[0]?.payload?.month; if (m && m <= thisMonth) setMonth(m); }}>
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} interval={0} />
-                <YAxis tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={44} tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
+                <YAxis tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={44} tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}к` : String(v))} />
                 <Tooltip cursor={{ fill: 'transparent' }} formatter={(v: any, n: any) => [money(v, 'UAH', 0), n === 'income' ? 'Дохід' : 'Витрати']} labelFormatter={() => ''} />
                 <Bar isAnimationActive={false} dataKey="income" radius={[3, 3, 0, 0]}>{trend.map((t, i) => <Cell key={i} fill="#22a356" fillOpacity={t.sel ? 1 : 0.45} />)}</Bar>
                 <Bar isAnimationActive={false} dataKey="expense" radius={[3, 3, 0, 0]}>{trend.map((t, i) => <Cell key={i} fill={accent} fillOpacity={t.sel ? 1 : 0.45} />)}</Bar>
@@ -116,7 +116,7 @@ export default function AnalyticsPage({ familyId, categories, onView, onBudgetsC
             <ResponsiveContainer>
               <ComposedChart data={daily} margin={{ top: 6, right: 0, left: -10, bottom: 0 }}>
                 <XAxis dataKey="day" tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} interval={4} />
-                <YAxis tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={44} tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
+                <YAxis tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={44} tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}к` : String(v))} />
                 <Tooltip formatter={(v: any, n: any) => [money(v, 'UAH', 0), n === 'cum' ? 'З початку місяця' : 'За день']} labelFormatter={(d: any) => `${d} число`} />
                 <Bar isAnimationActive={false} dataKey="v" fill={accent} fillOpacity={0.35} radius={[2, 2, 0, 0]} />
                 <Line isAnimationActive={false} dataKey="cum" stroke={accent} strokeWidth={2} dot={false} connectNulls={false} />
@@ -198,12 +198,26 @@ export default function AnalyticsPage({ familyId, categories, onView, onBudgetsC
       </Section>
 
       {(data.by_user.length > 1 || data.top_merchants.length > 0) && (
-        <Section title="Хто і де">
-          <Card flush>
-            {data.by_user.length > 1 && data.by_user.map(u => <Row key={u.name} compact title={`👤 ${u.name}`} end={<b className="tnum">{money(u.expense, 'UAH', 0)}</b>} />)}
-            {data.top_merchants.map(m => <Row key={m.title} compact title={m.title} sub={`${m.count} ${m.count === 1 ? 'операція' : 'операцій'}`} end={<span className="tnum">{money(m.amount, 'UAH', 0)}</span>} />)}
-          </Card>
-        </Section>
+        <>
+          {data.by_user.length > 1 && (() => {
+            const total = data.by_user.reduce((t, u) => t + u.expense, 0) || 1;
+            return (
+              <Section title="Хто витрачав">
+                <Card flush>
+                  {data.by_user.map(u => <Row key={u.name} compact icon="👤" title={u.name} sub={<Progress value={u.expense / total * 100} />}
+                    end={<div className="end-stack"><b className="tnum">{money(u.expense, 'UAH', 0)}</b><span className="muted xsmall">{Math.round(u.expense / total * 100)}%</span></div>} />)}
+                </Card>
+              </Section>
+            );
+          })()}
+          {data.top_merchants.length > 0 && (
+            <Section title="Де найбільше">
+              <Card flush>
+                {data.top_merchants.map(m => <Row key={m.title} compact title={m.title} sub={`${m.count} ${plural(m.count, 'операція', 'операції', 'операцій')}`} end={<span className="tnum">{money(m.amount, 'UAH', 0)}</span>} />)}
+              </Card>
+            </Section>
+          )}
+        </>
       )}
 
       {editBudgets && <BudgetsSheet familyId={familyId} categories={categories} budgets={budgets} onClose={() => setEditBudgets(false)}

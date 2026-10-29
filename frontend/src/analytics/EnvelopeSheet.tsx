@@ -30,7 +30,7 @@ export default function EnvelopeSheet({ familyId, env, categories, daysLeft, onC
       <Progress value={env.pct} tone={over ? 'danger' : env.status === 'warn' ? 'warn' : undefined} mark={((dim - daysLeft) / dim) * 100} />
       <div className="grid2">
         <Tile label="Витрачено" value={money(env.spent, 'UAH', 0)} />
-        <Tile label="Можна на день" value={env.per_day_left ? money(env.per_day_left, 'UAH', 0) : '—'} tone={over ? 'danger' : undefined} />
+        <Tile label="Можна на день" value={env.per_day_left ? money(env.per_day_left, 'UAH', 0) : over ? '0 ₴' : '—'} tone={over ? 'danger' : undefined} />
         <Tile label="Прогноз на місяць" value={money(env.forecast, 'UAH', 0)} tone={env.forecast > env.amount ? 'warn' : undefined} />
         <Tile label="До кінця місяця" value={`${daysLeft} дн.`} />
       </div>

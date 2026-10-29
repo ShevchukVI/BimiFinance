@@ -257,6 +257,8 @@ export default function App() {
   // the bank webhook writes «Монобанк» — manual entries use the same name, so balances and history agree
   const accounts = ['Готівка', ...(me?.has_mono_token || bankBalances.some(b => b.user_id === me?.id) ? ['Монобанк'] : [])];
   const housingOff = housing?.profile?.mode === 'off';
+  // how often each category was used in the loaded history — the add form shows the usual ones first
+  const catUsage = transactions.reduce<Record<number, number>>((m, t) => { if (t.category_id) m[t.category_id] = (m[t.category_id] || 0) + 1; return m; }, {});
   // personal bottom bar: a section shows when the family uses it, unless this user hid it in «Ще» (or turned it on)
   const tabPrefs = me?.tab_prefs || {};
   const showTab = (t: 'housing' | 'auto', used: boolean) => tabPrefs[t] ?? used;
@@ -353,7 +355,7 @@ export default function App() {
         onCreate={draft => { setLinkTx(null); openPayments(draft); }}
         onVehicle={vehicleId => { setAutoAction({ txId: linkTx.id, vehicleId }); setLinkTx(null); setActiveTab('auto'); }} />}
       {(addType || editingTx) && familyId && me && (
-        <TxModal editingTx={editingTx} categories={categories} familyId={familyId} dbUserId={me.id} accounts={accounts}
+        <TxModal editingTx={editingTx} categories={categories} familyId={familyId} dbUserId={me.id} accounts={accounts} usage={catUsage}
           initialType={addType || 'Витрати'}
           onClose={() => { setAddType(null); setEditingTx(null); }} onSaved={onTxSaved} onDeleted={onTxDeleted} />
       )}

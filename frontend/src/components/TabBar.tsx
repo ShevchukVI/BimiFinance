@@ -15,7 +15,7 @@ export default function TabBar({ activeTab, onTab, hidden = [] }: { activeTab: T
     <nav className="tabbar">
       {TABS.filter(t => !hidden.includes(t.key)).map(t => (
         <button key={t.key} className={`tab ${activeTab === t.key ? 'tab--on' : ''}`}
-          onClick={() => { if (t.key !== activeTab) { haptic('select'); onTab(t.key); window.scrollTo(0, 0); } }}>
+          onClick={() => { haptic('select'); onTab(t.key); window.scrollTo({ top: 0, behavior: t.key === activeTab ? 'smooth' : 'auto' }); }}>
           <span className="tab__icon">{t.icon}</span>
           <span>{t.label}</span>
         </button>

@@ -90,7 +90,7 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
   const t = o.totals;
   const providers = o.providers;
   const hasMeters = o.meters.length > 0;
-  const alerts = showAllAlerts ? o.alerts : o.alerts.slice(0, 3);
+  const alerts = showAllAlerts ? o.alerts : o.alerts.slice(0, 2);
   const onAlert = async (a: HousingAlert) => {
     if (a.kind === 'heating') {
       const on = !o.heating.on;
@@ -118,6 +118,12 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
         <h1 className="page-title">{o.profile?.title || 'Житло'}</h1>
       </div>
 
+      <Segmented value={seg} onChange={setSeg} options={[
+        { value: 'overview', label: 'Огляд' }, ...(hasMeters ? [{ value: 'meters' as Seg, label: 'Лічильники' }] : []),
+        { value: 'bills', label: 'Платіжки' }, { value: 'stats', label: 'Графіки' },
+      ]} />
+
+      {seg === 'overview' && (<>
       <Card className="hero">
         <div className="hero__label">До сплати зараз</div>
         <div className="hero__value tnum">{t.to_pay_now > 1 ? approx(t.to_pay_now) : 'Все сплачено ✓'}</div>
@@ -140,14 +146,10 @@ export default function HousingPage({ familyId, overview, setOverview, accounts,
               {a.text}
             </Banner>
           ))}
-          {o.alerts.length > 3 && <button className="link" style={{ alignSelf: 'center' }} onClick={() => setShowAllAlerts(v => !v)}>{showAllAlerts ? 'Згорнути' : `Ще ${o.alerts.length - 3}`}</button>}
+          {o.alerts.length > 2 && <button className="link" style={{ alignSelf: 'center' }} onClick={() => setShowAllAlerts(v => !v)}>{showAllAlerts ? 'Згорнути' : `Ще ${o.alerts.length - 2}`}</button>}
         </div>
       )}
-
-      <Segmented value={seg} onChange={setSeg} options={[
-        { value: 'overview', label: 'Огляд' }, ...(hasMeters ? [{ value: 'meters' as Seg, label: 'Лічильники' }] : []),
-        { value: 'bills', label: 'Платіжки' }, { value: 'stats', label: 'Графіки' },
-      ]} />
+      </>)}
 
       {seg === 'overview' && <OverviewSeg o={o} onProvider={id => setSheet({ kind: 'provider', id })}
         onAddProvider={() => setSheet({ kind: 'providerForm' })} onStats={() => setSeg('stats')} />}

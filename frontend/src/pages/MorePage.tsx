@@ -1,7 +1,7 @@
 import { ReactNode, useState } from 'react';
 import api from '../api';
 import { toast } from '../toast';
-import { confirmAsync } from '../tg';
+import { confirmAsync, openUrl } from '../tg';
 import Avatar from '../components/Avatar';
 import { Category, FamilyMembership, FamilyUser, Jar } from '../types';
 import PaymentsPage from '../payments/PaymentsPage';
@@ -174,7 +174,12 @@ function MonoScreen({ hasMonoToken, onTokenSaved }: { hasMonoToken: boolean; onT
         </div>
       ) : (
         <div className="stack-s">
-          <Field label="Токен з api.monobank.ua" hint="Токен шифрується і використовується лише для отримання операцій.">
+          <ol className="steps">
+            <li>Відкрийте <button className="link" onClick={() => openUrl('https://api.monobank.ua/')}>api.monobank.ua</button> і увійдіть через застосунок Monobank (QR-код).</li>
+            <li>Скопіюйте «Токен» — довгий рядок літер і цифр.</li>
+            <li>Вставте його нижче.</li>
+          </ol>
+          <Field label="Токен" hint="Лише читання: Bimi бачить баланс і операції, але не може переказувати гроші. Токен зберігається зашифрованим.">
             <input className="input" type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="Вставте токен" />
           </Field>
           <div className="btn-row">

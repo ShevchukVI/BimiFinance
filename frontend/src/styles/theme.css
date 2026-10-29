@@ -98,7 +98,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .hero { padding: 18px 16px; }
 .hero__label { font-size: 13px; color: var(--hint); font-weight: 500; }
 .hero__value { font-size: 34px; font-weight: 800; letter-spacing: -0.6px; line-height: 1.15; margin-top: 2px; }
-.hero__sub { font-size: 13px; color: var(--hint); margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+.hero__sub { font-size: 13px; color: var(--hint); margin-top: 4px; display: flex; gap: 2px 12px; flex-wrap: wrap; }
 
 /* ---------- round quick actions (Monobank-style) */
 .actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
@@ -265,3 +265,6 @@ button.money-row:active { opacity: .6; }
 .month-card__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
 .month-card__grid b { font-size: 16px; }
 .insights { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; line-height: 1.4; }
+.steps { margin: 0 0 4px; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; line-height: 1.4; }
+/* a tile on the page / sheet background (not inside a card) gets the card colour, otherwise grey on grey */
+.tile:not(.card .tile) { background: var(--card); }
