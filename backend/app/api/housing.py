@@ -652,7 +652,12 @@ def _save_bill(db: Session, fid: int, bill: models.UtilityBill, payload: S.BillI
             if ln.meter_id and ln.curr_value is not None:
                 m = _meter(db, fid, ln.meter_id)
                 same = next((r for r in m.readings if r.date == rd), None)
-                if same is None:
+                # a supplier billing on a stale reading (water: «164» for months) must not break own readings
+                fits = all(r.value <= ln.curr_value + 0.01 for r in m.readings if r.date < rd) and \
+                    all(r.value >= ln.curr_value - 0.01 for r in m.readings if r.date > rd)
+                if not fits:
+                    pass
+                elif same is None:
                     db.add(models.UtilityReading(meter_id=m.id, date=rd, value=ln.curr_value, source="bill",
                                                  note="З платіжки", user_id=user_id))
                 elif same.source == "bill":

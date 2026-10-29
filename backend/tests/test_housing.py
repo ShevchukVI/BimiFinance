@@ -342,3 +342,19 @@ def test_reminders_readings_day_and_ack(seeded, db):
 
 def test_system_endpoints_require_key(seeded):
     assert client.get("/system/housing/reminders").status_code == 401
+
+
+def test_stale_billed_reading_does_not_break_own_readings(seeded):
+    # Джерело-20 kept billing water on the April reading 164 while the meter was at 242
+    fid = seeded["family"].id
+    ov = client.post(f"/housing/families/{fid}/setup", headers=_hdr(fid), json={"mode": "own", "templates": ["water"]}).json()
+    prov, water = ov["providers"][0]["id"], ov["meters"][0]["id"]
+    for d, v in (("2026-09-09", 235), ("2026-10-04", 242)):
+        client.post(f"/housing/families/{fid}/readings", headers=_hdr(fid), json={"date": d, "items": [{"meter_id": water, "value": v}]})
+    b = client.post(f"/housing/families/{fid}/bills", headers=_hdr(fid), json={
+        "provider_id": prov, "period": "2026-09", "opening_balance": -287.08, "paid": 1, "accrued": 0,
+        "lines": [{"meter_id": water, "label": "Вода", "prev_value": 164, "curr_value": 164, "tariff": 29.21, "amount": 0}]}).json()
+    hist = client.get(f"/housing/families/{fid}/meters/{water}/readings", headers=_hdr(fid)).json()
+    assert sorted(h["value"] for h in hist) == [235, 242]  # 164 not stored on 01.10
+    flag = next(f for f in b["flags"] if f["code"] == "reading_mismatch")
+    assert flag["diff"] < 0 and "старим показником" in flag["text"]

@@ -451,15 +451,18 @@ def bill_flags(bill, prev_bill, payments, meters_by_id: dict, all_bills=None) ->
         if m is not None and ln.curr_value is not None:
             pts = series(m.readings)
             own, est = value_at(pts, add_months(bill.period, 1), max_extrapolate_days=7)
-            if own is not None and not est:
+            threshold = max(abs(ln.volume or 0) * 0.05, 3.0)
+            # billed below a reading you took before that date → stale for sure, even if «own» is a rough estimate
+            stale = any(p.date <= add_months(bill.period, 1) and p.value > ln.curr_value + threshold for p in pts)
+            if own is not None and (not est or stale):
                 diff = ln.curr_value - own
                 tariff = ln.tariff or m.tariff or 0
-                threshold = max(abs(ln.volume or 0) * 0.05, 3.0)
                 if abs(diff) > threshold:
                     add("warn", "reading_mismatch",
                         f"{m.name}: у платіжці {ln.curr_value:g}, а за вашими показниками на "
                         f"{add_months(bill.period, 1):%d.%m} ≈ {own:.0f} ({diff:+.0f} {m.unit}"
-                        + (f", ≈ {diff * tariff:+.0f} ₴)" if tariff else ")"), diff)
+                        + (f", ≈ {diff * tariff:+.0f} ₴)" if tariff else ")")
+                        + (" — постачальник рахує за старим показником, передайте свій" if diff < 0 else ""), diff)
     return flags
 
 
