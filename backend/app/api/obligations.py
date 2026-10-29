@@ -13,6 +13,7 @@ from app.core.deps import require_family
 from app.database import get_db
 from app.services import housing as H
 from app.services import obligations as O
+from app.services import vehicles as V
 
 router = APIRouter(tags=["obligations"])
 
@@ -217,6 +218,13 @@ def _current_link(db: Session, tx) -> Optional[dict]:
     if pay:
         p = db.get(models.UtilityProvider, pay.provider_id)
         return {"type": "provider", "id": p.id, "name": p.name, "icon": p.icon, "kind": p.service, "progress": None}
+    log = db.query(models.VehicleLog).filter(models.VehicleLog.transaction_id == tx.id).first()
+    if log:
+        v = db.get(models.Vehicle, log.vehicle_id)
+        icon, label = V.KINDS.get(log.kind, ("📦", "Авто"))
+        fill = f" · {log.liters:g} л" if log.kind == "fuel" and log.liters else ""
+        return {"type": "vehicle", "id": v.id, "name": v.name, "icon": v.icon or "🚗", "kind": log.kind,
+                "progress": None, "log_id": log.id, "sub": f"{icon} {label}{fill}"}
     return None
 
 
@@ -238,6 +246,11 @@ def get_link(family_id: int, tx_id: int, _: None = Depends(require_family), db: 
         m = O.text_matches(p.match_pattern, tx.title)
         cands.append({"type": "provider", "id": p.id, "name": p.name, "icon": p.icon, "kind": p.service,
                       "hint": H.SERVICE_META.get(p.service, {}).get("label", ""), "match": m, "score": 60 if m else 0})
+    car_cats = V.auto_category_ids(db, family_id)
+    for v in db.query(models.Vehicle).filter(models.Vehicle.family_id == family_id, models.Vehicle.is_active.is_(True)):
+        m = tx.category_id in car_cats or O.text_matches(v.match_pattern, tx.title)
+        cands.append({"type": "vehicle", "id": v.id, "name": v.name, "icon": v.icon or "🚗", "kind": "vehicle",
+                      "hint": "Авто", "match": m, "score": 70 if m else 0})
     cands.sort(key=lambda c: (-c["score"], c["type"], c["name"]))
     return {"current": _current_link(db, tx), "candidates": cands}
 
@@ -249,6 +262,7 @@ def set_link(family_id: int, tx_id: int, payload: LinkIn, _: None = Depends(requ
     if tx.type != "Витрати":
         raise HTTPException(400, "Пов'язати можна лише витрату")
     O.unlink(db, tx)
+    db.flush()  # a dropped journal entry must leave before a new one takes the same transaction
     if payload.type == "obligation":
         O.link_obligation(db, tx, _ob(db, family_id, payload.id))
     elif payload.type == "provider":
@@ -257,6 +271,13 @@ def set_link(family_id: int, tx_id: int, payload: LinkIn, _: None = Depends(requ
         if not p:
             raise HTTPException(404, "Послугу не знайдено")
         O.link_provider(db, tx, p, note="Пов'язано з операції")
+    elif payload.type == "vehicle":
+        v = db.query(models.Vehicle).filter(models.Vehicle.id == payload.id, models.Vehicle.family_id == family_id).first()
+        if not v:
+            raise HTTPException(404, "Авто не знайдено")
+        d = V.draft_from_tx(db, tx, v)
+        db.add(V.log_from_draft(d, family_id, tx.user_id, "transaction"))
+        V.apply_category(db, tx, d["kind"])
     else:
         raise HTTPException(400, "Невірний тип")
     db.commit()

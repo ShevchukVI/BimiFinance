@@ -23,11 +23,14 @@ import JarHistoryModal from './components/JarHistoryModal';
 import HousingPage, { HousingAction } from './housing/HousingPage';
 import { housingApi } from './housing/api';
 import type { Overview } from './housing/types';
+import AutoPage, { AutoAction } from './auto/AutoPage';
+import { autoApi } from './auto/api';
+import type { AutoOverview } from './auto/types';
 import type { Transaction, Category, Stats, Note, Jar, Tab, FamilyMembership, FamilyUser, Me, BankUserBalances } from './types';
 import { Spinner } from './ui';
 
 const LIMIT = 50;
-const TABS: Tab[] = ['home', 'transactions', 'housing', 'analytics', 'more'];
+const TABS: Tab[] = ['home', 'transactions', 'housing', 'auto', 'analytics', 'more'];
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -43,6 +46,8 @@ export default function App() {
   const [jars, setJars] = useState<Jar[]>([]);
   const [bankBalances, setBankBalances] = useState<BankUserBalances[]>([]);
   const [housing, setHousing] = useState<Overview | null>(null);
+  const [auto, setAuto] = useState<AutoOverview | null>(null);
+  const [autoAction, setAutoAction] = useState<AutoAction>(null);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
   const [budgets, setBudgets] = useState<Budgets | null>(null);
   const [envelope, setEnvelope] = useState<BudgetRow | null>(null);
@@ -102,6 +107,8 @@ export default function App() {
     setHousing(null);
     setUpcoming([]);
     housingApi.overview(fId).then(o => { if (famRef.current === fId) setHousing(o); }).catch(() => { /* housing is optional */ });
+    setAuto(null);
+    autoApi.overview(fId).then(o => { if (famRef.current === fId) setAuto(o); }).catch(() => { /* auto is optional */ });
     payApi.upcoming(fId, 10).then(u => { if (famRef.current === fId) setUpcoming(u); }).catch(() => { /**/ });
     setBudgets(null);
     anApi.budgets(fId).then(b => { if (famRef.current === fId) setBudgets(b); }).catch(() => { /**/ });
@@ -246,6 +253,8 @@ export default function App() {
   const openPayments = (draft: ObDraft | null = null) => { setPaymentsDraft(draft); openMore('payments'); };
   const accounts = ['Готівка', ...(bankBalances.find(b => b.user_id === me?.id)?.accounts.map(a => a.name) || [])];
   const housingOff = housing?.profile?.mode === 'off';
+  const noCar = !!auto && auto.vehicles.length === 0;  // the tab appears once a car is added (from «Ще»)
+  const refreshAuto = () => { const f = familyId; if (f) autoApi.overview(f).then(o => { if (famRef.current === f) setAuto(o); }).catch(() => { /**/ }); };
 
   if (authError) return <div className="screen-center"><div style={{ fontSize: 56 }}>🛑</div><h2 className="danger" style={{ margin: 0 }}>Доступ заборонено</h2><p className="muted">{authError}</p></div>;
   if (loading) return <div className="screen-center"><Spinner label="Завантаження…" /></div>;
@@ -280,6 +289,11 @@ export default function App() {
           onFinanceChanged={() => { refreshTransactions(); refreshStats(); refreshUpcoming(); }}
           action={housingAction} onActionDone={() => setHousingAction(null)} />
       )}
+      {activeTab === 'auto' && familyId && (
+        <AutoPage familyId={familyId} overview={auto} setOverview={setAuto} accounts={accounts} familyUsers={familyUsers}
+          onFinanceChanged={() => { refreshTransactions(); refreshStats(); }}
+          action={autoAction} onActionDone={() => setAutoAction(null)} />
+      )}
       {activeTab === 'analytics' && familyId && <AnalyticsPage familyId={familyId} categories={categories} onView={setViewingTx} onBudgetsChanged={setBudgets} />}
       {activeTab === 'more' && me && familyId && (
         <MorePage key={moreScreen.key} initialScreen={moreScreen.screen}
@@ -292,6 +306,7 @@ export default function App() {
           housingEnabled={!housingOff && !!housing?.profile}
           categories={categories} paymentsDraft={paymentsDraft} onPaymentsChanged={() => { refreshUpcoming(); refreshTransactions(); }}
           onHousingSettings={() => { setHousingAction('settings'); setActiveTab('housing'); }}
+          autoSummary={auto?.vehicles.length ? auto.vehicles.map(v => `${v.icon} ${v.name}`).join(', ') : null} onAuto={() => setActiveTab('auto')}
           onSwitchFamily={switchFamily} onInviteRegenerated={setInviteCode}
           onMemberRemoved={uid => setFamilyUsers(prev => prev.filter(u => u.id !== uid))}
           onMemberRoleChange={handleMemberRoleChange} onLeaveFamily={handleLeaveFamily}
@@ -302,8 +317,8 @@ export default function App() {
         <button className="fab" aria-label="Додати операцію" onClick={() => { haptic('medium'); setAddType('Витрати'); }}>+</button>
       )}
 
-      <TabBar activeTab={activeTab} onTab={t => { setActiveTab(t); if (t === 'more') { setPaymentsDraft(null); setMoreScreen(s => ({ screen: null, key: s.key + 1 })); } }}
-        hidden={housingOff && activeTab !== 'housing' ? ['housing'] : []} />
+      <TabBar activeTab={activeTab} onTab={t => { setActiveTab(t); if (t === 'auto') refreshAuto(); if (t === 'more') { setPaymentsDraft(null); setMoreScreen(s => ({ screen: null, key: s.key + 1 })); } }}
+        hidden={[...(housingOff && activeTab !== 'housing' ? ['housing' as Tab] : []), ...(noCar && activeTab !== 'auto' ? ['auto' as Tab] : [])]} />
 
       {isJarModalOpen && familyId && <CreateJarModal familyId={familyId} onClose={() => setIsJarModalOpen(false)} onCreated={j => setJars(prev => [...prev, j])} />}
       {envelope && familyId && budgets && <EnvelopeSheet familyId={familyId} env={envelope} categories={categories} daysLeft={budgets.days_left}
@@ -316,8 +331,9 @@ export default function App() {
         onEdit={() => { setEditingTx(viewingTx); setViewingTx(null); }} onCopy={copyToClipboard}
         onLink={() => { setLinkTx(viewingTx); setViewingTx(null); }} />}
       {linkTx && familyId && <LinkSheet familyId={familyId} tx={linkTx} onClose={() => setLinkTx(null)}
-        onChanged={() => { refreshTransactions(); refreshStats(); refreshUpcoming(); housingApi.overview(familyId).then(setHousing).catch(() => { /**/ }); }}
-        onCreate={draft => { setLinkTx(null); openPayments(draft); }} />}
+        onChanged={() => { refreshTransactions(); refreshStats(); refreshUpcoming(); refreshAuto(); housingApi.overview(familyId).then(setHousing).catch(() => { /**/ }); }}
+        onCreate={draft => { setLinkTx(null); openPayments(draft); }}
+        onVehicle={vehicleId => { setAutoAction({ txId: linkTx.id, vehicleId }); setLinkTx(null); setActiveTab('auto'); }} />}
       {(addType || editingTx) && familyId && me && (
         <TxModal editingTx={editingTx} categories={categories} familyId={familyId} dbUserId={me.id} accounts={accounts}
           initialType={addType || 'Витрати'}

@@ -206,6 +206,9 @@ def unlink(db: Session, tx) -> dict:
     for p in db.query(models.UtilityPayment).filter(models.UtilityPayment.transaction_id == tx.id).all():
         db.delete(p)
         was["payments"] += 1
+    for l in db.query(models.VehicleLog).filter(models.VehicleLog.transaction_id == tx.id).all():
+        db.delete(l)  # the car journal entry *is* this operation
+        was["vehicle_logs"] = was.get("vehicle_logs", 0) + 1
     return was
 
 

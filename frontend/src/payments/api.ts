@@ -23,7 +23,7 @@ export interface ObList { items: Obligation[]; totals: { credits_monthly: number
 
 export interface Upcoming { date: string; title: string; icon: string; amount: number; currency: string; kind: 'obligation' | 'housing'; id: number; status: string; sub: string; }
 
-export interface LinkTarget { type: 'obligation' | 'provider'; id: number; name: string; icon: string; kind: string; hint?: string; match?: boolean; score?: number; progress?: string | null; }
+export interface LinkTarget { type: 'obligation' | 'provider' | 'vehicle'; id: number; name: string; icon: string; kind: string; hint?: string; match?: boolean; score?: number; progress?: string | null; sub?: string; log_id?: number; }
 
 export const payApi = {
   list: (fid: number, inactive = false) => api.get<ObList>(`/families/${fid}/obligations${inactive ? '?include_inactive=true' : ''}`).then(r => r.data),

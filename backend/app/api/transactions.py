@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app import crud, models, schemas
 from app.core.deps import Actor, check_family_membership, get_actor, require_family
 from app.database import get_db
+from app.services import vehicles as V
 from app.services.obligations import auto_link
 
 router = APIRouter(tags=["transactions"])
@@ -53,6 +54,9 @@ def create_transaction(tx: schemas.TransactionCreate, actor: Actor = Depends(get
     # credit / subscription / housing payment recognised by its bank description → linked automatically
     if auto_link(db, obj):
         db.refresh(obj)
+    # fuel / car repair category → entry in the car journal (liters & odometer read from the note)
+    elif V.auto_link(db, obj):
+        db.refresh(obj)
     return obj
 
 
@@ -86,6 +90,7 @@ def update_transaction(tx_id: int, payload: schemas.TransactionUpdate, actor: Ac
         check_family_membership(db, actor, tx.family_id)
     updated = crud.update_transaction(db, tx_id, payload.model_dump(exclude_unset=True))
     _sync_housing_payments(db, updated)
+    _sync_vehicle_log(db, updated)
     return updated
 
 
@@ -101,6 +106,18 @@ def _sync_housing_payments(db: Session, tx) -> None:
         db.refresh(tx)
 
 
+def _sync_vehicle_log(db: Session, tx) -> None:
+    """Car journal entry mirrors amount/date (and re-reads liters/odometer added to the note later);
+    an operation categorised as fuel / car in the Inbox gets its entry now."""
+    if tx is None:
+        return
+    if V.sync_from_tx(db, tx):
+        db.commit()
+        db.refresh(tx)
+    elif V.auto_link(db, tx):
+        db.refresh(tx)
+
+
 @router.put("/transactions/by-mono/{mono_id}", response_model=schemas.TransactionOut)
 def update_tx_by_mono(mono_id: str, payload: schemas.TransactionUpdate, actor: Actor = Depends(get_actor),
                       db: Session = Depends(get_db)):
@@ -111,6 +128,7 @@ def update_tx_by_mono(mono_id: str, payload: schemas.TransactionUpdate, actor: A
         check_family_membership(db, actor, tx.family_id)
     updated = crud.update_tx_by_mono(db, mono_id, payload.model_dump(exclude_unset=True))
     _sync_housing_payments(db, updated)
+    _sync_vehicle_log(db, updated)
     return updated
 
 
@@ -123,5 +141,7 @@ def delete_transaction(tx_id: int, actor: Actor = Depends(get_actor), db: Sessio
         check_family_membership(db, actor, tx.family_id)
     # the housing payment *is* this transaction — remove it too, otherwise it keeps counting
     db.query(models.UtilityPayment).filter(models.UtilityPayment.transaction_id == tx_id).delete(synchronize_session=False)
+    db.query(models.VehicleLog).filter(models.VehicleLog.transaction_id == tx_id).delete(synchronize_session=False)
+    db.query(models.VehicleIgnoredTx).filter(models.VehicleIgnoredTx.transaction_id == tx_id).delete(synchronize_session=False)
     db.commit()
     crud.delete_transaction(db, tx_id)

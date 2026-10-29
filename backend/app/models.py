@@ -318,3 +318,56 @@ class Budget(Base):
     family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
     amount = Column(Float, nullable=False)
+
+
+# ============================================================================
+# Auto («Авто»): family vehicles and their journal (fuel fills, service, washes…).
+# A journal entry may point to the finance transaction that paid it (one-to-one).
+# ============================================================================
+
+class Vehicle(Base):
+    __tablename__ = "vehicles"
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)  # "Skoda Octavia Tour"
+    icon = Column(String, default="🚗")
+    plate = Column(String, default="")
+    fuel = Column(String, nullable=False, default="petrol")  # petrol | diesel | lpg | electric
+    fuel2 = Column(String, nullable=True)  # second fuel of a bi-fuel car (ГБО: petrol + lpg)
+    tank_l = Column(Float, nullable=True)
+    tank2_l = Column(Float, nullable=True)
+    start_odometer = Column(Integer, nullable=True)
+    match_pattern = Column(String, default="")  # bank descriptions of stations / washes («AZS|OKKO|DEWASH»)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # main driver (picks the car for auto-linking)
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0)
+    note = Column(String, default="")
+
+
+class VehicleLog(Base):
+    __tablename__ = "vehicle_logs"
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    kind = Column(String, nullable=False, default="fuel")  # fuel | service | repair | tires | wash | parking | insurance | fine | other | odometer
+    odometer = Column(Integer, nullable=True)
+    fuel = Column(String, nullable=True)
+    liters = Column(Float, nullable=True)  # kWh for electric
+    price = Column(Float, nullable=True)  # per liter
+    full_tank = Column(Boolean, default=False, nullable=False)
+    amount = Column(Float, default=0.0)  # mirrors the linked transaction
+    title = Column(String, default="")
+    note = Column(String, default="")
+    source = Column(String, default="manual")  # manual | transaction | import
+    transaction_id = Column(Integer, ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True, unique=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class VehicleIgnoredTx(Base):
+    """«Не авто» — a suggested operation the family dismissed (coffee at a station, a borrowed car)."""
+    __tablename__ = "vehicle_ignored_tx"
+    __table_args__ = (UniqueConstraint("family_id", "transaction_id", name="uq_vehicle_ignored_tx"),)
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    transaction_id = Column(Integer, ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)

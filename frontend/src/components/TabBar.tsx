@@ -5,6 +5,7 @@ const TABS: { key: Tab; icon: string; label: string }[] = [
   { key: 'home', icon: '🏠', label: 'Головна' },
   { key: 'transactions', icon: '💸', label: 'Історія' },
   { key: 'housing', icon: '🏡', label: 'Житло' },
+  { key: 'auto', icon: '🚗', label: 'Авто' },
   { key: 'analytics', icon: '📊', label: 'Аналітика' },
   { key: 'more', icon: '☰', label: 'Ще' },
 ];

@@ -21,6 +21,7 @@ export default function MorePage(props: {
   noteText: string; setNoteText: (s: string) => void; onNoteBlur: () => void; onNoteClear: () => void;
   splitBy: number; setSplitBy: (n: number) => void;
   housingEnabled: boolean; onHousingSettings: () => void;
+  autoSummary: string | null; onAuto: () => void;
   categories: Category[]; paymentsDraft?: ObDraft | null; onPaymentsChanged?: () => void;
   onSwitchFamily: (familyId: number) => void; onInviteRegenerated: (code: string) => void;
   onMemberRemoved: (userId: number) => void; onMemberRoleChange: (userId: number, role: 'admin' | 'member') => void;
@@ -49,6 +50,7 @@ export default function MorePage(props: {
         {item('🎯', 'Цілі', props.jars.length ? `${props.jars.length} скарбнич${props.jars.length === 1 ? 'ка' : 'ки'}` : 'Відкладати на мрію', () => setScreen('jars'))}
         {item('📝', 'Чернетка', 'Швидкі підрахунки й нотатки', () => setScreen('notes'))}
         {item('🏡', 'Житло', props.housingEnabled ? 'Комуналка, оренда, лічильники' : 'Вимкнено — увімкнути', props.onHousingSettings)}
+        {item('🚗', 'Авто', props.autoSummary || 'Пальне, витрата л/100 км, ремонти — увімкнути', props.onAuto)}
       </Card>
       <Card flush>
         {item('👨‍👩‍👧', "Сім'я", `${props.familyName} · ${props.familyUsers.length} учасн.`, () => setScreen('family'))}

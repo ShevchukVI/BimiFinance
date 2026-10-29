@@ -38,8 +38,9 @@ export default function TxDetailsSheet({ tx, categories, familyId, onClose, onEd
         <Card flush>
           <Row icon={current ? current.icon : '🔗'} iconAccent
             title={current ? current.name : "Пов'язати"}
-            sub={current ? (current.progress ? `Платіж ${current.progress}` : current.type === 'provider' ? 'Оплата в «Житлі»' : 'Платіж підписки')
-              : 'З кредитом, підпискою чи комуналкою'}
+            sub={current ? (current.progress ? `Платіж ${current.progress}` : current.type === 'provider' ? 'Оплата в «Житлі»'
+              : current.type === 'vehicle' ? `Журнал авто · ${current.sub || ''}` : 'Платіж підписки')
+              : 'З кредитом, підпискою, комуналкою чи авто'}
             chevron onClick={onLink} />
         </Card>
       )}
