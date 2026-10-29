@@ -8,7 +8,7 @@ export interface FamilyMembership { family_id: number; name: string; role: strin
 export interface FamilyUser { id: number; tg_id: number | null; name: string; has_mono_token: boolean; role: string | null; }
 export interface BankAccountBalance { name: string; balance: number; currency: string; }
 export interface BankUserBalances { user_id: number; user_name: string; provider: string; accounts: BankAccountBalance[]; }
-export interface Me { id: number; tg_id: number | null; name: string; has_mono_token: boolean; current_active_family_id: number | null; family_id: number | null; role: string | null; }
+export interface Me { id: number; tg_id: number | null; name: string; has_mono_token: boolean; current_active_family_id: number | null; family_id: number | null; role: string | null; tab_prefs?: Partial<Record<'housing' | 'auto', boolean>>; }
 
 export const COLORS = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#34495e', '#e67e22', '#1abc9c', '#f39c12', '#d35400'];
 

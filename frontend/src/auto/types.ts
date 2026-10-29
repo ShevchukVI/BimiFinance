@@ -4,6 +4,7 @@ export type LogKind = 'fuel' | 'service' | 'repair' | 'tires' | 'wash' | 'parkin
 export interface FuelStats {
   fills: number; liters: number; money: number; avg_per100: number | null; avg_km: number | null; estimated: number;
   last_per100: number | null; last_full_date: string | null; last_price: number | null; last_price_date: string | null;
+  secondary: boolean; per_month_l: number | null; per_month_money: number | null; last_date: string;
 }
 export interface MonthPoint { month: string; fuel: number; maintenance: number; other: number; km: number | null; partial: boolean; }
 export interface VehicleStats {
@@ -20,15 +21,21 @@ export interface TxBrief { id: number; date: string; amount: number; title: stri
 export interface VLog {
   id: number; vehicle_id: number; date: string; kind: LogKind; icon: string; label: string; odometer: number | null;
   fuel: Fuel | null; liters: number | null; price: number | null; full_tank: boolean; amount: number; title: string; note: string;
-  source: string; transaction_id: number | null; transaction: TxBrief | null; km_since: number | null;
+  source: string; place: string; transaction_id: number | null; transaction: TxBrief | null; km_since: number | null;
   segment: { km: number; per100: number; estimated: boolean } | null; user_name: string | null;
 }
 export interface LogDraft {
   vehicle_id: number | null; kind: LogKind; date: string; amount: number; odometer: number | null; fuel: Fuel | null;
   liters: number | null; price: number | null; full_tank: boolean; title: string; transaction_id: number | null; foreign_fuel?: boolean;
+  place?: string | null; predicted?: ('fuel' | 'price' | 'liters')[]; odometer_hint?: number | null; confidence?: 'sure' | 'maybe' | null;
 }
 export interface Suggestion { transaction: TxBrief; draft: LogDraft; }
-export interface AutoOverview { vehicles: Vehicle[]; suggested: number; }
+export interface AutoOverview { vehicles: Vehicle[]; suggested: number; suggested_sure: number; }
+export interface PlaceHint { name: string; count: number; last_date: string; prices: Partial<Record<Fuel, number>>; kind: LogKind; }
+export interface Hints {
+  places: PlaceHint[]; last_fuel: Fuel; odometer_estimate: number | null;
+  fuels: Partial<Record<Fuel, { last_price: number | null; liters: number | null; amount: number | null; full_share: number }>>;
+}
 
 export const FUELS: Record<Fuel, { label: string; unit: string; icon: string; color: string }> = {
   lpg: { label: 'Газ', unit: 'л', icon: '🔵', color: '#3b82f6' },

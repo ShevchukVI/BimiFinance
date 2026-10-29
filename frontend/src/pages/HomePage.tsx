@@ -1,23 +1,26 @@
+import { useState } from 'react';
 import { Stats, Transaction, Category, BankUserBalances, Jar, sortCurrencies } from '../types';
 import type { Overview } from '../housing/types';
 import type { Upcoming } from '../payments/api';
 import type { Budgets, BudgetRow } from '../analytics/api';
+import type { AutoOverview } from '../auto/types';
 import { catIcon } from '../components/TransactionCard';
-import { approx, day, inMonth, money, todayIso } from '../format';
+import { approx, day, inMonth, money, plural, qty, todayIso } from '../format';
 import { Badge, Banner, Card, Empty, Progress, Row, Section } from '../ui';
 import { TxList } from '../components/TransactionCard';
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function HomePage({
-  stats, transactions, categories, bankBalances, jars, housing, upcoming, budgets,
-  onOpenInbox, onUpcoming, onBudgets, onEnvelope, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
+  stats, transactions, categories, bankBalances, jars, housing, auto, upcoming, budgets,
+  onAuto, onOpenInbox, onUpcoming, onBudgets, onEnvelope, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
 }: {
   stats: Stats | null; transactions: Transaction[]; categories: Category[]; bankBalances: BankUserBalances[];
-  jars: Jar[]; housing: Overview | null; upcoming: Upcoming[]; budgets: Budgets | null;
+  jars: Jar[]; housing: Overview | null; auto: AutoOverview | null; onAuto: () => void; upcoming: Upcoming[]; budgets: Budgets | null;
   onOpenInbox: () => void; onUpcoming: (u: Upcoming | null) => void; onBudgets: () => void; onEnvelope: (b: BudgetRow) => void; onSeeAll: () => void; onAdd: (type?: 'Витрати' | 'Поповнення') => void;
   onView: (tx: Transaction) => void; onHousing: () => void; onReadings: () => void; onJar: (j: Jar) => void; onJars: () => void;
 }) {
+  const [allEnv, setAllEnv] = useState(false);
   const pending = stats?.pending_count || 0;
   const byCurrency = stats?.by_currency || {};
   const curs = sortCurrencies(Object.keys(byCurrency));
@@ -74,29 +77,61 @@ export default function HomePage({
         </Banner>
       )}
 
-      {budgets && budgets.items.length > 0 && (
-        <Section title={`Конверти · ${budgets.days_left} дн. до кінця місяця`} action="Налаштувати" onAction={onBudgets}>
-          <div className="grid2">
-            {budgets.items.map(b => {
-              const cat = categories.find(c => c.id === b.category_id);
-              const over = b.status === 'over';
-              const dim = budgets.days_left + new Date().getDate() || 30;
-              return (
-                <Card key={b.category_id} onClick={() => onEnvelope(b)}>
-                  <div className="stack-s" style={{ gap: 6 }}>
-                    <div className="hstack small" style={{ gap: 6 }}><span>{catIcon(cat)}</span><span className="ellipsis bold">{b.name.replace(/^\S+\s/, '')}</span></div>
-                    <div className={`tnum ${over ? 'danger' : ''}`} style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.1 }}>
-                      {over ? '−' : ''}{money(Math.abs(b.remaining), 'UAH', 0)}
-                    </div>
-                    <Progress value={b.pct} tone={over ? 'danger' : b.status === 'warn' ? 'warn' : undefined} mark={((dim - budgets.days_left) / dim) * 100} />
-                    <div className="muted xsmall ellipsis">{over ? 'перевищено' : b.per_day_left ? `≈ ${money(b.per_day_left, 'UAH', 0)}/день` : `з ${money(b.amount, 'UAH', 0)}`}</div>
-                  </div>
-                </Card>
-              );
+      {upcoming.length > 0 && (
+        <Section title="Найближчі платежі" action="Усі" onAction={() => onUpcoming(null)}>
+          <Card flush>
+            {upcoming.slice(0, 5).map(u => {
+              const days = Math.round((new Date(`${u.date}T12:00:00`).getTime() - new Date(`${todayIso()}T12:00:00`).getTime()) / 86400000);
+              const when = days < 0 ? <Badge tone="danger">прострочено</Badge> : days === 0 ? <Badge tone="warn">сьогодні</Badge> : days === 1 ? <Badge tone="warn">завтра</Badge> : null;
+              return <Row key={`${u.kind}${u.id}${u.date}`} icon={u.icon} title={u.title} sub={<>{day(u.date)} · {u.sub}</>}
+                end={<span className="stack-s" style={{ gap: 2, alignItems: 'flex-end' }}><b>{money(u.amount, u.currency, 0)}</b>{when}</span>} onClick={() => onUpcoming(u)} />;
             })}
-          </div>
+          </Card>
         </Section>
       )}
+
+      {budgets && budgets.items.length > 0 && (() => {
+        const dim = budgets.days_left + new Date().getDate() || 30;
+        const mark = ((dim - budgets.days_left) / dim) * 100;
+        const rank = (b: BudgetRow) => (b.status === 'over' ? 2 : b.status === 'warn' ? 1 : 0) * 1000 + b.pct;
+        const items = [...budgets.items].sort((x, y) => rank(y) - rank(x));
+        const shown = allEnv ? items : items.slice(0, 4);
+        const t = budgets.totals;
+        const over = items.filter(b => b.status === 'over').length;
+        return (
+          <Section title={`Конверти · ще ${budgets.days_left} ${plural(budgets.days_left, 'день', 'дні', 'днів')}`} action="Налаштувати" onAction={onBudgets}>
+            <Card flush>
+              <div className="env-sum">
+                <div className="spread">
+                  <span className="muted small">Лишилось на місяць</span>
+                  <span className="muted small tnum">з {money(t.amount, 'UAH', 0)}</span>
+                </div>
+                <div className={`env-sum__value tnum ${t.amount - t.spent < 0 ? 'danger' : ''}`}>{money(t.amount - t.spent, 'UAH', 0)}</div>
+                <Progress value={t.amount ? (t.spent / t.amount) * 100 : 0} tone={t.spent > t.amount ? 'danger' : t.forecast > t.amount ? 'warn' : undefined} mark={mark} />
+                <div className="muted xsmall" style={{ marginTop: 6 }}>
+                  {[over ? `${over} ${plural(over, 'конверт перевищено', 'конверти перевищено', 'конвертів перевищено')}` : 'усі в межах',
+                    t.forecast > t.amount ? `прогноз ${money(t.forecast, 'UAH', 0)}` : null].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+              {shown.map(b => {
+                const cat = categories.find(c => c.id === b.category_id);
+                const isOver = b.status === 'over';
+                return (
+                  <Row key={b.category_id} icon={catIcon(cat)} title={b.name.replace(/^\S+\s/, '')} onClick={() => onEnvelope(b)}
+                    sub={<div className="env-row__bar"><Progress value={b.pct} tone={isOver ? 'danger' : b.status === 'warn' ? 'warn' : undefined} mark={mark} /></div>}
+                    end={<div className="end-stack">
+                      <b className={`tnum ${isOver ? 'danger' : ''}`}>{isOver ? '−' : ''}{money(Math.abs(b.remaining), 'UAH', 0)}</b>
+                      <span className="muted xsmall tnum">{isOver ? 'перевищено' : b.per_day_left ? `${money(b.per_day_left, 'UAH', 0)}/день` : `з ${money(b.amount, 'UAH', 0)}`}</span>
+                    </div>} />
+                );
+              })}
+              {items.length > 4 && (
+                <button className="row-more" onClick={() => setAllEnv(x => !x)}>{allEnv ? 'Згорнути' : `Усі ${items.length} конвертів`}</button>
+              )}
+            </Card>
+          </Section>
+        );
+      })()}
 
       {(cash.size > 0 || bankBalances.length > 0) && (
         <Section title="Рахунки">
@@ -112,19 +147,6 @@ export default function HomePage({
         </Section>
       )}
 
-      {upcoming.length > 0 && (
-        <Section title="Найближчі платежі" action="Усі" onAction={() => onUpcoming(null)}>
-          <Card flush>
-            {upcoming.slice(0, 5).map(u => {
-              const days = Math.round((new Date(`${u.date}T12:00:00`).getTime() - new Date(`${todayIso()}T12:00:00`).getTime()) / 86400000);
-              const when = days < 0 ? <Badge tone="danger">прострочено</Badge> : days === 0 ? <Badge tone="warn">сьогодні</Badge> : days === 1 ? <Badge tone="warn">завтра</Badge> : null;
-              return <Row key={`${u.kind}${u.id}${u.date}`} icon={u.icon} title={u.title} sub={<>{day(u.date)} · {u.sub}</>}
-                end={<span className="stack-s" style={{ gap: 2, alignItems: 'flex-end' }}><b>{money(u.amount, u.currency, 0)}</b>{when}</span>} onClick={() => onUpcoming(u)} />;
-            })}
-          </Card>
-        </Section>
-      )}
-
       {housingOn && housing && (
         <Section title="Житло" action="Відкрити" onAction={onHousing}>
           <Card flush>
@@ -135,12 +157,30 @@ export default function HomePage({
         </Section>
       )}
 
+      {auto && auto.vehicles.length > 0 && (() => {
+        const v = auto.vehicles[0];
+        const main = v.stats.fuels[v.fuel];
+        const fresh = auto.suggested_sure;
+        return (
+          <Section title="Авто" action="Відкрити" onAction={onAuto}>
+            <Card flush>
+              <Row icon={fresh ? '⛽' : v.icon} iconAccent
+                title={fresh ? `${fresh} ${plural(fresh, 'нова заправка', 'нові заправки', 'нових заправок')} з банку` : v.name}
+                sub={fresh ? 'Додати в журнал одним дотиком' : [v.stats.odometer ? `${qty(v.stats.odometer, 0)} км` : null,
+                  main?.avg_per100 ? `${main.avg_per100.toFixed(1).replace('.', ',')} л/100` : null,
+                  `${money(v.stats.month_spend, 'UAH', 0)} цього місяця`].filter(Boolean).join(' · ')}
+                chevron onClick={onAuto} />
+            </Card>
+          </Section>
+        );
+      })()}
+
       {jars.length > 0 && (
         <Section title="Цілі" action="Усі" onAction={onJars}>
           <div className="chips--scroll" style={{ display: 'flex', gap: 8 }}>
             {jars.map(j => (
-              <Card key={j.id} onClick={() => onJar(j)} className="" >
-                <div style={{ width: 150 }} className="stack-s">
+              <Card key={j.id} onClick={() => onJar(j)} className={jars.length === 1 ? 'grow' : ''}>
+                <div style={{ width: jars.length === 1 ? 'auto' : 150 }} className="stack-s">
                   <div className="bold ellipsis">{j.mono_jar_id ? '🏦' : '🎯'} {j.name}</div>
                   <div className="small tnum">{money(j.balance, j.currency, 0)} <span className="muted">/ {money(j.goal, j.currency, 0)}</span></div>
                   <Progress value={j.goal ? (j.balance / j.goal) * 100 : 0} />

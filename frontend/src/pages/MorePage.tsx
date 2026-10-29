@@ -6,7 +6,7 @@ import Avatar from '../components/Avatar';
 import { Category, FamilyMembership, FamilyUser, Jar } from '../types';
 import PaymentsPage from '../payments/PaymentsPage';
 import type { ObDraft } from '../payments/ObligationForm';
-import { Badge, Button, Card, Field, Row, Section, SubScreen } from '../ui';
+import { Badge, Button, Card, Field, Row, Section, SubScreen, Switch } from '../ui';
 import JarsPage from './JarsPage';
 import NotesPage from './NotesPage';
 
@@ -22,6 +22,7 @@ export default function MorePage(props: {
   splitBy: number; setSplitBy: (n: number) => void;
   housingEnabled: boolean; onHousingSettings: () => void;
   autoSummary: string | null; onAuto: () => void;
+  tabs: { housing: boolean; auto: boolean }; onTab: (tab: 'housing' | 'auto', show: boolean) => void;
   categories: Category[]; paymentsDraft?: ObDraft | null; onPaymentsChanged?: () => void;
   onSwitchFamily: (familyId: number) => void; onInviteRegenerated: (code: string) => void;
   onMemberRemoved: (userId: number) => void; onMemberRoleChange: (userId: number, role: 'admin' | 'member') => void;
@@ -57,6 +58,13 @@ export default function MorePage(props: {
         {item('🏦', 'Monobank', props.hasMonoToken ? <span className="pos">Підключено</span> : 'Не підключено', () => setScreen('mono'))}
         <Row icon="📤" title="Експорт в Excel" sub="Скоро" />
       </Card>
+      <Section title="Нижнє меню">
+        <Card flush>
+          <Row icon="🏡" title="Житло" sub="Комуналка, оренда, лічильники" end={<Switch on={props.tabs.housing} onChange={on => props.onTab('housing', on)} label="Вкладка «Житло»" />} />
+          <Row icon="🚗" title="Авто" sub="Заправки, витрата, ремонти" end={<Switch on={props.tabs.auto} onChange={on => props.onTab('auto', on)} label="Вкладка «Авто»" />} />
+        </Card>
+        <div className="muted xsmall" style={{ padding: '0 4px' }}>Лише для вас — решта сім'ї бачить свої вкладки. Вимкнені розділи лишаються тут, у «Ще».</div>
+      </Section>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -48,3 +50,21 @@ def set_active_family(payload: schemas.SetActiveFamilyRequest, actor: Actor = De
 def remove_user(family_id: int, user_id: int, _: None = Depends(require_family_admin),
                 db: Session = Depends(get_db)):
     crud.remove_user(db, family_id, user_id)
+
+
+@router.put("/users/me/tabs", response_model=schemas.UserOut)
+def set_my_tab(payload: schemas.TabPrefsUpdate, actor: Actor = Depends(require_user), db: Session = Depends(get_db)):
+    """Personal bottom bar: hide a section you don't use (or bring it back)."""
+    user = actor.user
+    try:
+        prefs = json.loads(user.tab_prefs or "{}")
+    except ValueError:
+        prefs = {}
+    if payload.show is None:
+        prefs.pop(payload.tab, None)
+    else:
+        prefs[payload.tab] = payload.show
+    user.tab_prefs = json.dumps(prefs) if prefs else None
+    db.commit()
+    db.refresh(user)
+    return user

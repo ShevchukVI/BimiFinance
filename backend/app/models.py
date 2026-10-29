@@ -34,6 +34,7 @@ class User(Base):
     tg_id = Column(BigInteger, unique=True, nullable=True, index=True)
     name = Column(String, nullable=False)
     mono_token = Column(String, nullable=True)
+    tab_prefs = Column(String, nullable=True)  # JSON {"auto": false, "housing": true} — personal bottom-bar tabs
     current_active_family_id = Column(Integer, ForeignKey("families.id"), nullable=True)
 
     memberships = relationship("FamilyMember", back_populates="user", cascade="all, delete-orphan")
@@ -356,6 +357,7 @@ class VehicleLog(Base):
     liters = Column(Float, nullable=True)  # kWh for electric
     price = Column(Float, nullable=True)  # per liter
     full_tank = Column(Boolean, default=False, nullable=False)
+    place = Column(String, nullable=True)  # station / service: «WOG», «Пролюкс» — learned per bank merchant
     amount = Column(Float, default=0.0)  # mirrors the linked transaction
     title = Column(String, default="")
     note = Column(String, default="")

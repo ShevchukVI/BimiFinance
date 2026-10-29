@@ -3,7 +3,7 @@ import { toast } from '../toast';
 import { day, money, monthYear, plural, qty } from '../format';
 import { confirmAsync, haptic } from '../tg';
 import type { FamilyUser } from '../types';
-import { Badge, Banner, Button, Card, Chips, Empty, Row, Segmented, Spinner, Tile } from '../ui';
+import { Badge, Banner, Button, Card, Chips, Empty, Row, Segmented, Spinner } from '../ui';
 import { errText } from '../housing/api';
 import { autoApi } from './api';
 import AutoStats from './AutoStats';
@@ -21,11 +21,22 @@ const CARE: LogKind[] = ['service', 'repair', 'tires'];
 const logTitle = (l: VLog) => {
   if (l.kind === 'fuel') {
     const f = l.fuel ? FUELS[l.fuel] : null;
-    return [f?.label || 'Заправка', l.liters ? `${qty(l.liters, 1)} ${f?.unit || 'л'}` : null, l.price ? `по ${qty(l.price)} ₴` : null].filter(Boolean).join(' ');
+    return [f?.label || 'Заправка', l.liters ? `${qty(l.liters, 1)} ${f?.unit || 'л'}` : null].filter(Boolean).join(' ');
   }
   if (l.kind === 'odometer') return 'Пробіг';
   return l.title || l.transaction?.title || l.label;
 };
+
+function Stat({ label, value, unit, sub, onClick }: { label: string; value: string; unit?: string; sub?: string | null; onClick?: () => void }) {
+  const Tag: any = onClick ? 'button' : 'div';
+  return (
+    <Tag className="stat" onClick={onClick}>
+      <div className="stat__label">{label}</div>
+      <div className="stat__value tnum">{value}{unit && <span className="stat__unit"> {unit}</span>}</div>
+      {sub && <div className="stat__sub">{sub}</div>}
+    </Tag>
+  );
+}
 
 export default function AutoPage({ familyId, overview, setOverview, accounts, familyUsers, onFinanceChanged, action, onActionDone }: {
   familyId: number; overview: AutoOverview | null; setOverview: (o: AutoOverview) => void; accounts: string[];
@@ -92,6 +103,9 @@ export default function AutoPage({ familyId, overview, setOverview, accounts, fa
   );
 
   const s = v.stats;
+  // the last reading is weeks old → where the odometer probably is now (usual km per day since)
+  const staleDays = s.odometer_date ? (Date.now() - new Date(s.odometer_date).getTime()) / 864e5 : 0;
+  const odoNow = s.odometer && s.km_per_month && staleDays > 10 ? Math.round((s.odometer + s.km_per_month / 30.44 * staleDays) / 10) * 10 : null;
   const fuels = Object.entries(s.fuels) as [Fuel, NonNullable<typeof s.fuels[Fuel]>][];
   const importHistory = async () => {
     if (!(await confirmAsync(`Перенести в журнал «${v.name}» усі витрати з категорій «Паливо» й «Авто»? Літри, ціну й пробіг візьмемо з коментарів.`))) return;
@@ -123,12 +137,12 @@ export default function AutoPage({ familyId, overview, setOverview, accounts, fa
       {vehicles.length > 1 && <Chips scroll small value={v.id} onChange={setVid} options={vehicles.map(x => ({ value: x.id, label: `${x.icon} ${x.name}` }))} />}
 
       <Card className="hero">
-        <div className="hero__label">Пробіг</div>
-        <div className="hero__value tnum">{s.odometer ? `${qty(s.odometer, 0)} км` : '—'}</div>
+        <div className="hero__label">Пробіг{s.odometer_date ? ` на ${day(s.odometer_date)}` : ''}</div>
+        <div className="hero__value tnum">{s.odometer ? <>{qty(s.odometer, 0)} <span className="hero__unit">км</span></> : '—'}</div>
         <div className="hero__sub">
-          {s.odometer_date && <span>на {day(s.odometer_date)}</span>}
-          {s.km_per_month && <span>≈ {qty(s.km_per_month, 0)} км/міс</span>}
-          <span>цього місяця {money(s.month_spend, 'UAH', 0)}</span>
+          {odoNow && <span>зараз ≈ {qty(odoNow, 0)} км</span>}
+          {s.km_per_month && <span>{qty(s.km_per_month, 0)} км/міс</span>}
+          <span>{money(s.month_spend, 'UAH', 0)} цього місяця</span>
         </div>
         <div className="actions" style={{ marginTop: 16, gridTemplateColumns: `repeat(${actions.length}, 1fr)` }}>
           {actions.map(a => <button key={a.label} className="action" onClick={a.onClick}><span className="action__icon">{a.icon}</span>{a.label}</button>)}
@@ -140,26 +154,27 @@ export default function AutoPage({ familyId, overview, setOverview, accounts, fa
           {importing ? 'Переносимо…' : <>Перенести історію: <b>{overview.suggested}</b> {plural(overview.suggested, 'операція', 'операції', 'операцій')} з «Паливо» й «Авто» — з літрами й пробігом з коментарів</>}
         </Banner>
       ) : overview.suggested > 0 && (
-        <Banner icon="🔗" onClick={() => setSheet({ kind: 'suggest' })}>
-          {overview.suggested} {plural(overview.suggested, 'операція схожа', 'операції схожі', 'операцій схожі')} на авто — додати в журнал
+        <Banner icon={overview.suggested_sure ? '⛽' : '🔗'} onClick={() => setSheet({ kind: 'suggest' })}>
+          {overview.suggested_sure
+            ? <><b>{overview.suggested_sure} {plural(overview.suggested_sure, 'нова заправка', 'нові заправки', 'нових заправок')}</b> з банку{overview.suggested > overview.suggested_sure ? ` і ще ${overview.suggested - overview.suggested_sure} на перевірку` : ''} — додати в журнал</>
+            : <>{overview.suggested} {plural(overview.suggested, 'операція схожа', 'операції схожі', 'операцій схожі')} на авто — перевірити</>}
         </Banner>
       )}
 
-      {(fuels.length > 0 || s.cost_per_km) && (
+      {(fuels.length > 0 || s.cost_per_km !== null) && (
         <div className="grid2">
-          {fuels.map(([f, st]) => (
-            <Tile key={f} label={`${FUELS[f].icon} ${FUELS[f].label}, л/100 км`}
-              value={<>{st.avg_per100 !== null ? qty(st.avg_per100, 1) : '—'}
-                <div className="muted xsmall" style={{ fontWeight: 400 }}>
-                  {[st.last_per100 !== null ? `повний бак ${qty(st.last_per100, 1)}` : null, st.last_price ? `${qty(st.last_price)} ₴/л` : null].filter(Boolean).join(' · ') || `${st.fills} ${plural(st.fills, 'заправка', 'заправки', 'заправок')}`}
-                </div></>} />
+          {fuels.map(([f, st]) => st.secondary ? (
+            <Stat key={f} label={`${FUELS[f].label} · рідко`} value={st.per_month_l !== null ? `≈ ${qty(st.per_month_l, 0)}` : '—'} unit="л/міс"
+              sub={`${st.fills} ${plural(st.fills, 'заправка', 'заправки', 'заправок')} · ${money(st.per_month_money, 'UAH', 0)}/міс`} />
+          ) : (
+            <Stat key={f} label={`${FUELS[f].label}, витрата`} value={st.avg_per100 !== null ? st.avg_per100.toFixed(1).replace('.', ',') : '—'} unit={st.avg_per100 !== null ? 'л/100' : undefined}
+              sub={st.last_per100 !== null ? `повний бак — ${qty(st.last_per100, 1)}` : st.avg_per100 === null ? 'потрібні 2 заправки з пробігом' : st.last_price ? `${qty(st.last_price)} ₴/л` : null}
+              onClick={() => setSeg('stats')} />
           ))}
           {s.cost_per_km !== null && (
-            <Tile label="Гривень на 1 км" value={<>{qty(s.cost_per_km)} ₴
-              <div className="muted xsmall" style={{ fontWeight: 400 }}>з них пальне {qty(s.fuel_cost_per_km)} ₴</div></>} />
+            <Stat label="Кілометр коштує" value={qty(s.cost_per_km, 2)} unit="₴" sub={`з них пальне ${qty(s.fuel_cost_per_km)} ₴`} onClick={() => setSeg('stats')} />
           )}
-          <Tile label="За рік" value={<>{money(s.year_spend, 'UAH', 0)}
-            {s.km_tracked ? <div className="muted xsmall" style={{ fontWeight: 400 }}>{qty(s.km_tracked, 0)} км у журналі</div> : null}</>} />
+          <Stat label="За рік" value={money(s.year_spend, 'UAH', 0)} sub={s.km_tracked ? `${qty(s.km_tracked, 0)} км у журналі` : null} onClick={() => setSeg('stats')} />
         </div>
       )}
 
@@ -175,11 +190,11 @@ export default function AutoPage({ familyId, overview, setOverview, accounts, fa
               <div className="date-head spread"><span>{monthYear(`${g.month}-01`)}</span>{g.total > 0 && <span className="tnum">{money(g.total, 'UAH', 0)}</span>}</div>
               <Card flush>
                 {g.items.map(l => (
-                  <Row key={l.id} icon={l.icon} title={<>{logTitle(l)}{l.full_tank && <span className="muted small"> · повний</span>}</>}
+                  <Row key={l.id} icon={l.icon} title={<>{logTitle(l)}{l.place && <span className="muted"> · {l.place}</span>}{l.full_tank && <span className="badge-mini">повний</span>}</>}
                     sub={[day(l.date), l.odometer ? `${qty(l.odometer, 0)} км` : null, l.km_since ? `+${qty(l.km_since, 0)} км` : null,
                       l.segment ? `${qty(l.segment.per100, 1)} л/100` : null, l.kind !== 'fuel' && l.note ? l.note : null,
                       !l.transaction_id && l.kind !== 'odometer' && l.amount > 0 ? 'не у фінансах' : null].filter(Boolean).join(' · ')}
-                    end={l.amount > 0 ? <b className="tnum">{money(l.amount, 'UAH', 0)}</b> : undefined}
+                    end={l.amount > 0 ? <div className="end-stack"><b className="tnum">{money(l.amount, 'UAH', 0)}</b>{l.kind === 'fuel' && l.price ? <span className="muted xsmall tnum">{qty(l.price)} ₴/л</span> : null}</div> : undefined}
                     onClick={() => setSheet({ kind: 'log', log: l })} />
                 ))}
               </Card>

@@ -200,3 +200,67 @@ def test_vehicle_archive_and_tenant_isolation(db, seeded):
     client.post(f"/families/{fid}/vehicle-logs", headers=_hdr(fid), json={"vehicle_id": v.id, "kind": "odometer", "odometer": 281000})
     assert client.delete(f"/families/{fid}/vehicles/{v.id}", headers=_hdr(fid)).json() == {"archived": True}
     assert client.get(f"/families/{fid}/auto", headers=_hdr(fid)).json()["vehicles"] == []
+
+
+def test_learning_from_history_station_amounts_place_and_prediction(db, seeded):
+    """«AZS 4»: fills ~1000–1300 ₴ (LPG at 42,9), coffee there ≤ 95 ₴ → a new 999,89 is surely a fill
+    (LPG, ≈23,3 л, Пролюкс), 256 needs a look, 70 is coffee. Naming the station once names them all."""
+    v, cats = _seed_car(db, seeded)
+    fid, uid = seeded["family"].id, seeded["admin"].id
+    pend, daily = seeded["cats"]["Очікує"].id, seeded["cats"]["Кафе"].id
+    fuel = cats["⛽ Паливо"].id
+    for amt, note, d in [(1272, "Газ 30 л по 42,90. Пробіг: 281100", "2026-08-19"),
+                         (1051.09, "Газ 18,6 за 42,9 грн. Пробіг: 280500", "2026-07-21")]:
+        client.post("/transactions", headers=_hdr(fid), json={
+            "family_id": fid, "user_id": uid, "category_id": fuel, "amount": amt, "type": "Витрати",
+            "title": "AZS 4", "note": note, "account": "Монобанк", "date": d})
+    for amt in (60, 95, 75):
+        make_tx(db, fid, uid, daily, amt, "Витрати", title="AZS 4", account="Монобанк", date="2026-08-20")
+    logs = client.get(f"/families/{fid}/vehicles/{v.id}/logs", headers=_hdr(fid)).json()
+    r = client.put(f"/families/{fid}/vehicle-logs/{logs[0]['id']}", headers=_hdr(fid), json={"place": "Пролюкс"})
+    assert r.status_code == 200
+    assert {l["place"] for l in client.get(f"/families/{fid}/vehicles/{v.id}/logs", headers=_hdr(fid)).json()} == {"Пролюкс"}
+
+    big = make_tx(db, fid, uid, pend, 999.89, "Витрати", title="❓ AZS 4", account="Монобанк", date="2026-09-28")
+    mid = make_tx(db, fid, uid, pend, 256, "Витрати", title="❓ AZS 4", account="Монобанк", date="2026-08-27")
+    make_tx(db, fid, uid, pend, 70, "Витрати", title="❓ AZS 4", account="Монобанк", date="2026-09-14")
+    wog = make_tx(db, fid, uid, pend, 1500, "Витрати", title="❓ WOG", account="Монобанк", date="2026-10-20")
+    sug = {s["transaction"]["id"]: s["draft"] for s in client.get(f"/families/{fid}/auto/suggestions", headers=_hdr(fid)).json()}
+    assert set(sug) == {big.id, mid.id, wog.id}
+    b = sug[big.id]
+    assert b["confidence"] == "sure" and b["fuel"] == "lpg" and b["price"] == 42.9 and b["liters"] == 23.3
+    assert b["place"] == "Пролюкс" and set(b["predicted"]) == {"fuel", "price", "liters"}
+    assert b["odometer_hint"] and b["odometer_hint"] > 281100
+    assert sug[mid.id]["confidence"] == "maybe"
+    assert sug[wog.id]["place"] == "WOG" and sug[wog.id]["confidence"] == "maybe"  # unknown merchant, pattern only
+    ov = client.get(f"/families/{fid}/auto", headers=_hdr(fid)).json()
+    assert ov["suggested"] == 3 and ov["suggested_sure"] == (1 if (date.today() - date(2026, 9, 28)).days <= 45 else 0)
+
+    r = client.post(f"/families/{fid}/auto/suggestions/accept", headers=_hdr(fid), json={"transaction_ids": [big.id]})
+    assert r.json() == {"added": 1}
+    db.refresh(big)
+    assert big.category_id == fuel and big.title == "AZS 4"
+    h = client.get(f"/families/{fid}/vehicles/{v.id}/hints", headers=_hdr(fid)).json()
+    assert h["places"][0]["name"] == "Пролюкс" and h["places"][0]["prices"]["lpg"] == 42.9 and h["last_fuel"] == "lpg"
+
+
+def test_second_fuel_of_bifuel_car_has_no_per100():
+    v = NS(fuel="lpg", fuel2="petrol", start_odometer=None)
+    logs = [_log(1, date(2026, 3, 1), odo=279000, liters=40, price=42, full=True),
+            _log(2, date(2026, 3, 2), fuel="petrol", liters=10, price=58, odo=279010),
+            _log(3, date(2026, 4, 1), odo=279700, liters=35, price=42, full=True),
+            _log(4, date(2026, 6, 1), fuel="petrol", liters=20, price=60, odo=280900)]
+    st = V.vehicle_stats(v, logs, today=date(2026, 7, 1))
+    assert st["fuels"]["lpg"]["avg_per100"] is not None and not st["fuels"]["lpg"]["secondary"]
+    p = st["fuels"]["petrol"]
+    assert p["secondary"] and p["avg_per100"] is None and p["per_month_l"] == round(30 / 121 * 30.44, 1)
+
+
+def test_personal_tab_prefs(db, seeded):
+    fid, uid = seeded["family"].id, seeded["admin"].id
+    h = {**_hdr(fid), "X-User-Id": str(uid)}
+    r = client.put("/users/me/tabs", headers=h, json={"tab": "auto", "show": False})
+    assert r.status_code == 200 and r.json()["tab_prefs"] == {"auto": False}
+    r = client.put("/users/me/tabs", headers=h, json={"tab": "auto", "show": None})
+    assert r.json()["tab_prefs"] == {}
+    assert client.put("/users/me/tabs", headers=h, json={"tab": "bogus", "show": True}).status_code == 422

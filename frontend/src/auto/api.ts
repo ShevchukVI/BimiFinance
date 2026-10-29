@@ -1,5 +1,5 @@
 import api from '../api';
-import type { AutoOverview, LogDraft, Suggestion, TxBrief, Vehicle, VehicleStats, VLog } from './types';
+import type { AutoOverview, Hints, LogDraft, Suggestion, TxBrief, Vehicle, VehicleStats, VLog } from './types';
 
 const fam = (fid: number) => `/families/${fid}`;
 
@@ -16,6 +16,8 @@ export const autoApi = {
   suggestions: (fid: number) => api.get<Suggestion[]>(`${fam(fid)}/auto/suggestions`).then(r => r.data),
   draft: (fid: number, txId: number, vehicleId?: number) =>
     api.get<{ transaction: TxBrief; draft: LogDraft }>(`${fam(fid)}/auto/draft?tx_id=${txId}${vehicleId ? `&vehicle_id=${vehicleId}` : ''}`).then(r => r.data),
+  accept: (fid: number, txIds: number[]) => api.post<{ added: number }>(`${fam(fid)}/auto/suggestions/accept`, { transaction_ids: txIds }).then(r => r.data),
+  hints: (fid: number, id: number) => api.get<Hints>(`${fam(fid)}/vehicles/${id}/hints`).then(r => r.data),
   ignore: (fid: number, txId: number) => api.post(`${fam(fid)}/auto/ignore`, { transaction_id: txId }).then(r => r.data),
   importHistory: (fid: number, id: number) => api.post<{ linked: number; skipped: TxBrief[] }>(`${fam(fid)}/vehicles/${id}/import`).then(r => r.data),
 };

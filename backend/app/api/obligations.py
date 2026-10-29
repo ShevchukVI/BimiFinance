@@ -247,8 +247,10 @@ def get_link(family_id: int, tx_id: int, _: None = Depends(require_family), db: 
         cands.append({"type": "provider", "id": p.id, "name": p.name, "icon": p.icon, "kind": p.service,
                       "hint": H.SERVICE_META.get(p.service, {}).get("label", ""), "match": m, "score": 60 if m else 0})
     car_cats = V.auto_category_ids(db, family_id)
-    for v in db.query(models.Vehicle).filter(models.Vehicle.family_id == family_id, models.Vehicle.is_active.is_(True)):
-        m = tx.category_id in car_cats or O.text_matches(v.match_pattern, tx.title)
+    vs = db.query(models.Vehicle).filter(models.Vehicle.family_id == family_id, models.Vehicle.is_active.is_(True)).all()
+    known = bool(vs) and bool((V.learn(db, family_id).get(V.merchant_key(tx.title)) or {}).get("car"))
+    for v in vs:
+        m = tx.category_id in car_cats or known or O.text_matches(v.match_pattern, tx.title)
         cands.append({"type": "vehicle", "id": v.id, "name": v.name, "icon": v.icon or "🚗", "kind": "vehicle",
                       "hint": "Авто", "match": m, "score": 70 if m else 0})
     cands.sort(key=lambda c: (-c["score"], c["type"], c["name"]))

@@ -87,6 +87,9 @@ def run_migrations():
             "ALTER TABLE jars ADD COLUMN IF NOT EXISTS bank_balance DOUBLE PRECISION",
             "ALTER TABLE jars ADD COLUMN IF NOT EXISTS synced_at TIMESTAMP",
             "CREATE INDEX IF NOT EXISTS ix_jars_mono_jar_id ON jars (mono_jar_id)",
+            # Personal bottom-bar tabs + car journal: station of a fill
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS tab_prefs VARCHAR",
+            "ALTER TABLE vehicle_logs ADD COLUMN IF NOT EXISTS place VARCHAR",
         ):
             conn.execute(text(stmt))
 

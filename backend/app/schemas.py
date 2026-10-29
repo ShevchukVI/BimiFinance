@@ -1,6 +1,7 @@
+import json
 from datetime import date, datetime
-from typing import Optional, List
-from pydantic import BaseModel, computed_field, model_validator
+from typing import Literal, Optional, List
+from pydantic import BaseModel, computed_field, field_validator, model_validator
 
 class FamilyCreate(BaseModel):
     name: str
@@ -28,13 +29,29 @@ class UserOut(BaseModel):
     has_mono_token: bool = False
     current_active_family_id: Optional[int] = None
     role: Optional[str] = None
+    tab_prefs: dict[str, bool] = {}
     model_config = {"from_attributes": True}
+
+    @field_validator("tab_prefs", mode="before")
+    @classmethod
+    def _tab_prefs(cls, v):
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                v = {}
+        return {k: bool(x) for k, x in (v or {}).items()} if isinstance(v, dict) else {}
 
     @computed_field
     @property
     def family_id(self) -> Optional[int]:
         """Backward compat — frontend uses family_id."""
         return self.current_active_family_id
+class TabPrefsUpdate(BaseModel):
+    tab: Literal["housing", "auto"]
+    show: Optional[bool] = None  # None → back to the default (shown when the family uses it)
+
+
 class FamilyMembershipOut(BaseModel):
     family_id: int
     name: str

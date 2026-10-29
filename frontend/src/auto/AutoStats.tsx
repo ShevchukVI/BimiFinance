@@ -8,6 +8,8 @@ import { cssVar } from '../housing/chart';
 import { autoApi } from './api';
 import { Fuel, FUELS, KINDS, Vehicle, VehicleStats, VLog } from './types';
 
+const kfmt = (v: number) => (v >= 1000 ? `${qty(v / 1000, 1)}к` : String(v));
+
 const GROUPS = [
   { key: 'fuel', label: 'Пальне', color: '#3b82f6' },
   { key: 'maintenance', label: 'ТО й ремонт', color: '#f97316' },
@@ -50,9 +52,9 @@ export default function AutoStats({ familyId, vehicle, logs }: { familyId: numbe
             </div>
             <div style={{ height: 190 }}>
               <ResponsiveContainer>
-                <BarChart data={data} margin={{ top: 6, right: 0, left: -18, bottom: 0 }}>
+                <BarChart data={data} margin={{ top: 6, right: 0, left: -6, bottom: 0 }}>
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: hint }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={44} />
+                  <YAxis tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={34} tickFormatter={kfmt} />
                   <Tooltip cursor={{ fill: 'transparent' }} formatter={(v: any, n: any) => [money(v, 'UAH', 0), GROUPS.find(g => g.key === n)?.label || n]} />
                   {GROUPS.map((g, i) => <Bar key={g.key} isAnimationActive={false} dataKey={g.key} stackId="a" fill={g.color}
                     radius={i === GROUPS.length - 1 ? [5, 5, 0, 0] : undefined} />)}
@@ -68,7 +70,7 @@ export default function AutoStats({ familyId, vehicle, logs }: { familyId: numbe
               {byKind.rows.map(r => (
                 <Row key={r.value} icon={r.icon} title={r.label}
                   sub={<Progress value={r.sum / byKind.total * 100} />}
-                  end={<span className="tnum"><b>{money(r.sum, 'UAH', 0)}</b> <span className="muted small">{Math.round(r.sum / byKind.total * 100)}%</span></span>} />
+                  end={<div className="end-stack"><b className="tnum">{money(r.sum, 'UAH', 0)}</b><span className="muted xsmall">{Math.round(r.sum / byKind.total * 100)}%</span></div>} />
               ))}
             </Card>
           </Section>
@@ -80,9 +82,9 @@ export default function AutoStats({ familyId, vehicle, logs }: { familyId: numbe
           <div className="muted small" style={{ marginBottom: 6 }}>Пробіг по місяцях, км{stats.km_per_month ? ` · у середньому ${qty(stats.km_per_month, 0)}` : ''}</div>
           <div style={{ height: 150 }}>
             <ResponsiveContainer>
-              <BarChart data={data} margin={{ top: 6, right: 0, left: -18, bottom: 0 }}>
+              <BarChart data={data} margin={{ top: 6, right: 0, left: -6, bottom: 0 }}>
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: hint }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={44} />
+                <YAxis tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={34} tickFormatter={kfmt} />
                 <Tooltip cursor={{ fill: 'transparent' }} formatter={(v: any, _n: any, it: any) => [`${qty(v, 0)} км${it.payload.partial ? ' (поки що)' : ''}`, 'Пробіг']} />
                 <Bar isAnimationActive={false} dataKey="km" radius={[5, 5, 0, 0]} fill="#10b981" />
               </BarChart>
@@ -96,10 +98,10 @@ export default function AutoStats({ familyId, vehicle, logs }: { familyId: numbe
           <div className="muted small" style={{ marginBottom: 6 }}>Ціна пального, ₴ за літр</div>
           <div style={{ height: 160 }}>
             <ResponsiveContainer>
-              <LineChart data={priceData} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
+              <LineChart data={priceData} margin={{ top: 6, right: 6, left: -6, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke={cssVar('--fill', '#eee')} />
                 <XAxis dataKey="date" tickFormatter={d => day(d)} tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} minTickGap={24} />
-                <YAxis domain={['auto', 'auto']} tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={44} />
+                <YAxis domain={['auto', 'auto']} tick={{ fontSize: 10, fill: hint }} axisLine={false} tickLine={false} width={30} />
                 <Tooltip labelFormatter={d => day(String(d))} formatter={(v: any, n: any) => [`${qty(v)} ₴`, FUELS[n as Fuel]?.label || n]} />
                 {priceFuels.map(f => <Line key={f} isAnimationActive={false} dataKey={f} stroke={FUELS[f].color} strokeWidth={2} dot={{ r: 3 }} connectNulls />)}
               </LineChart>

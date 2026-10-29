@@ -8,11 +8,18 @@ Consumption (л/100 км) uses fills of one fuel between odometer readings:
 - average: liters of every fill after the first reading up to the last one / km between them
   (tank level differences even out over many fills);
 - full-to-full: liters between two «до повного» fills / km between them (exact for that stretch).
-A bi-fuel car (ГБО) has one odometer for both fuels, so each fuel's figure is per km driven in total.
+A bi-fuel car (ГБО) has one odometer for both fuels: l/100 is shown for the main fuel only; the second one
+(petrol for warming up an LPG engine) gets liters per month instead — per total km it would be meaningless.
+
+Learning: every confirmed entry teaches the journal about its bank merchant («AZS 4» → fills at «Пролюкс»,
+LPG, ~1000 ₴; coffee there is ≤ 95 ₴). New operations from that merchant are then suggested with a
+confidence, a station name, a fuel, a price and liters predicted from that history.
 """
 from __future__ import annotations
 
 import re
+from collections import Counter
+from statistics import median
 from datetime import date, timedelta
 from typing import Iterable, Optional
 
@@ -36,6 +43,13 @@ KINDS = {
 MAINTENANCE = ("service", "repair", "tires")
 DEFAULT_PATTERN = "AZS|АЗС|WOG|OKKO|ОККО|UPG|SOCAR|KLO|БРСМ|BRSM|Shell|Авіас|AMIC|Motto|DEWASH|Мийка|Parking|Паркінг"
 MIN_STATION_AMOUNT = 200  # a pending «AZS 4» for 60 ₴ is coffee, not fuel
+FUEL_SURE_AMOUNT = 300  # a station bill above this (and well above the coffee there) is a fill
+BRANDS = [  # station chains recognisable in a bank description or a note
+    ("WOG", r"\bwog\b|\bвог[іуа]?\b"), ("OKKO", r"okko|окко"), ("SOCAR", r"socar|сокар"), ("UPG", r"\bupg\b"),
+    ("KLO", r"\bklo\b|\bкло\b"), ("БРСМ-Нафта", r"брсм|brsm"), ("Shell", r"\bshell\b|шелл"), ("Авіас", r"авіас|avias"),
+    ("Motto", r"motto|мотто"), ("AMIC", r"\bamic\b|амік"), ("Укрнафта", r"ukrnafta|укрнафт"),
+    ("Пролюкс", r"proluks|пролюкс"), ("DEWASH", r"dewash"),
+]
 
 _N = r"(\d+(?:[.,]\d+)?)"
 _FUEL_RE = [
@@ -68,6 +82,20 @@ def _num(s: str) -> float:
 def tx_text(tx) -> str:
     note = "" if (tx.note or "").strip() == "Migrated" else (tx.note or "")
     return f"{_clean_title(tx.title)} {note}".strip()
+
+
+def merchant_key(title: Optional[str]) -> str:
+    """«❓ AZS 4», «AZS 4 (Газ, 48 л…)», «AZS 4 | Нонстоп» → «azs 4» — what the bank calls the place."""
+    t = _clean_title(title or "").lower()
+    t = re.split(r"\s*[|(]", t)[0]
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def brand(text: Optional[str]) -> Optional[str]:
+    for name, rx in BRANDS:
+        if re.search(rx, text or "", re.I):
+            return name
+    return None
 
 
 def is_auto_category(name: Optional[str]) -> bool:
@@ -135,18 +163,128 @@ def vehicle_fuels(v) -> list[str]:
     return [f for f in (v.fuel, v.fuel2) if f]
 
 
-def draft_from_tx(db: Session, tx, vehicle) -> dict:
-    """Pre-filled journal entry for a transaction (also used by the «Пов'язати» sheet)."""
+def learn(db: Session, family_id: int) -> dict:
+    """merchant key → what the journal knows about it: car entries (amounts, kind, fuel, station, price
+    history) and other spending there (coffee at a station, operations marked «не авто»)."""
+    logs = db.query(models.VehicleLog).filter(models.VehicleLog.family_id == family_id,
+                                              models.VehicleLog.transaction_id.isnot(None)).all()
+    by_tx = {l.transaction_id: l for l in logs}
+    ignored = {r[0] for r in db.query(models.VehicleIgnoredTx.transaction_id).filter(
+        models.VehicleIgnoredTx.family_id == family_id)}
+    cars = auto_category_ids(db, family_id)
+    pending = {c.id for c in db.query(models.Category).filter(models.Category.family_id == family_id)
+               if "Очікує" in c.name}
+    prof: dict = {}
+    rows = db.query(models.Transaction.id, models.Transaction.title, models.Transaction.amount,
+                    models.Transaction.category_id).filter(models.Transaction.family_id == family_id,
+                                                           models.Transaction.type == "Витрати").all()
+    for tid, title, amount, cat in rows:
+        key = merchant_key(title)
+        if not key:
+            continue
+        l = by_tx.get(tid)
+        if l is not None:
+            p = prof.setdefault(key, _blank())
+            p["car"].append(amount or 0)
+            p["kinds"][l.kind] += 1
+            if l.kind == "fuel" and l.fuel:
+                p["fuels"][l.fuel] += 1
+            if l.place:
+                p["places"][l.place] += 1
+        elif tid in ignored or cat is not None and cat not in cars and cat not in pending:
+            p = prof.setdefault(key, _blank())
+            p["other"].append(amount or 0)
+    for p in prof.values():
+        p["kind"] = p["kinds"].most_common(1)[0][0] if p["kinds"] else None
+        p["fuel"] = p["fuels"].most_common(1)[0][0] if p["fuels"] else None
+        p["place"] = p["places"].most_common(1)[0][0] if p["places"] else None
+    return prof
+
+
+def _blank() -> dict:
+    return {"car": [], "other": [], "kinds": Counter(), "fuels": Counter(), "places": Counter()}
+
+
+def assess(amount: float, p: Optional[dict], station: bool) -> Optional[str]:
+    """Is a pending operation from this merchant car spending? → "sure" | "maybe" | None.
+    Learned from history: amounts of confirmed entries vs other spending there (coffee, snacks)."""
+    amount = amount or 0
+    if p and p["car"]:
+        other = max(p["other"], default=0)
+        car_min, car_med = min(p["car"]), median(p["car"])
+        if other and amount <= other * 1.2 and amount < car_min * 0.5:
+            return None
+        if p["kind"] == "fuel":
+            sure = max(other * 2, car_med * 0.4, FUEL_SURE_AMOUNT)
+            floor = MIN_STATION_AMOUNT
+        else:  # a wash costs 100–200 ₴ — its own history sets the bar
+            sure = max(other * 2, car_min * 0.7)
+            floor = car_min * 0.5
+        return "sure" if amount >= sure else "maybe" if amount >= floor else None
+    if p and p["other"] and not station:
+        return None
+    if station and amount >= MIN_STATION_AMOUNT:
+        return "maybe"
+    return None
+
+
+def _price_at(logs: list, fuel: str, place: Optional[str], d: date) -> Optional[float]:
+    """Latest known price of the fuel up to the date — at that station if it is known there."""
+    known = sorted((l for l in logs if l.kind == "fuel" and l.fuel == fuel and l.price and l.date <= d),
+                   key=_sort_key)
+    at = [l for l in known if place and l.place == place]
+    src = at or known
+    return src[-1].price if src else None
+
+
+def odometer_estimate(v, logs: list, d: date) -> Optional[int]:
+    """Where the odometer probably is on a date: last reading + the usual km per day since then."""
+    pts = odometer_points(v, logs)
+    if not pts or d <= pts[-1][0]:
+        return None
+    (d0, o0), (d1, o1) = pts[0], pts[-1]
+    days = (d1 - d0).days
+    if days < 14 or o1 <= o0:
+        return None
+    return round(o1 + (o1 - o0) / days * (d - d1).days)
+
+
+def draft_from_tx(db: Session, tx, vehicle, prof: Optional[dict] = None, logs: Optional[list] = None) -> dict:
+    """Pre-filled journal entry for a transaction (also used by the «Пов'язати» sheet).
+    What the note doesn't say is predicted from the merchant's history (`predicted` lists those fields)."""
     cat = db.get(models.Category, tx.category_id) if tx.category_id else None
     text = tx_text(tx)
     p = parse(text)
-    kind = classify(text, cat.name if cat else None, p, station=bool(vehicle and text_matches(vehicle.match_pattern, tx.title)))
+    prof = learn(db, tx.family_id) if prof is None else prof
+    mp = prof.get(merchant_key(tx.title))
+    station = bool(vehicle and text_matches(vehicle.match_pattern, tx.title))
+    kind = classify(text, cat.name if cat else None, p, station=station)
+    if mp and mp["kind"] and kind == "other" and not (cat and is_auto_category(cat.name)):
+        kind = mp["kind"]
+    if mp and mp["kind"] and mp["kind"] != "fuel" and kind == "fuel" and not (p["liters"] or p["fuel"]):
+        kind = mp["kind"]  # «DEWASH» is a wash even though it matched the stations pattern
     d = {"vehicle_id": vehicle.id if vehicle else None, "kind": kind, "date": str(tx.date), "amount": tx.amount,
          "odometer": p["odometer"], "fuel": None, "liters": None, "price": None, "full_tank": False,
-         "title": _clean_title(tx.title), "transaction_id": tx.id, "foreign_fuel": False}
+         "title": _clean_title(tx.title), "transaction_id": tx.id, "foreign_fuel": False,
+         "place": brand(text) or (mp and mp["place"]) or None, "predicted": [], "odometer_hint": None,
+         "confidence": assess(tx.amount, mp, station) if cat is None or _is_pending(db, tx) else "sure"}
+    if vehicle is not None:
+        logs = logs if logs is not None else db.query(models.VehicleLog).filter(
+            models.VehicleLog.vehicle_id == vehicle.id).all()
+        if not p["odometer"]:
+            d["odometer_hint"] = odometer_estimate(vehicle, logs, tx.date)
     if kind == "fuel":
-        fuel = p["fuel"] or (vehicle.fuel if vehicle else None)
+        fuel = p["fuel"] or (mp and mp["fuel"]) or (vehicle.fuel if vehicle else None)
+        if not p["fuel"] and fuel:
+            d["predicted"].append("fuel")
         liters, price = complete_fuel(p["liters"], p["price"], tx.amount)
+        if not price and fuel and vehicle is not None:
+            price = _price_at(logs, fuel, d["place"], tx.date)
+            if price:
+                d["predicted"].append("price")
+                if not liters and tx.amount:
+                    liters = round(tx.amount / price, 1)
+                    d["predicted"].append("liters")
         d.update(fuel=fuel, liters=liters, price=price, full_tank=p["full_tank"],
                  foreign_fuel=bool(vehicle and fuel and fuel not in vehicle_fuels(vehicle)))
     return d
@@ -156,7 +294,8 @@ def log_from_draft(d: dict, family_id: int, user_id: Optional[int], source: str)
     return models.VehicleLog(family_id=family_id, vehicle_id=d["vehicle_id"], date=date.fromisoformat(d["date"]),
                              kind=d["kind"], odometer=d["odometer"], fuel=d["fuel"], liters=d["liters"],
                              price=d["price"], full_tank=d["full_tank"], amount=d["amount"], title=d["title"],
-                             source=source, transaction_id=d["transaction_id"], user_id=user_id)
+                             source=source, transaction_id=d["transaction_id"], user_id=user_id,
+                             place=d.get("place"))
 
 
 def pick_vehicle(db: Session, family_id: int, user_id: Optional[int]):
@@ -178,30 +317,36 @@ def _linkable(tx) -> bool:
 
 
 def candidates(db: Session, family_id: int, days: int = 365, today: Optional[date] = None,
-               include_pending: bool = True) -> list:
-    """Unlinked expenses that look like car spending: an auto category, or a pending bank
-    operation at a station / wash (pending ones only from MIN_STATION_AMOUNT — coffee stays out)."""
+               include_pending: bool = True, prof: Optional[dict] = None) -> list:
+    """Unlinked expenses that look like car spending: an auto category, or a pending bank operation
+    the history says is car spending (a learned merchant / the stations pattern, by amount — coffee stays out).
+    → [(tx, "sure" | "maybe")]"""
     today = today or today_kyiv()
     used = logged_tx_ids(db, family_id) | linked_tx_ids(db, family_id) | {r[0] for r in db.query(
         models.VehicleIgnoredTx.transaction_id).filter(models.VehicleIgnoredTx.family_id == family_id)}
     cats = auto_category_ids(db, family_id)
     pats = "|".join(v.match_pattern or "" for v in db.query(models.Vehicle).filter(
         models.Vehicle.family_id == family_id, models.Vehicle.is_active.is_(True)))
+    pending = {c.id for c in db.query(models.Category).filter(models.Category.family_id == family_id)
+               if "Очікує" in c.name}
     txs = (db.query(models.Transaction).filter(models.Transaction.family_id == family_id,
                                                models.Transaction.type == "Витрати",
                                                models.Transaction.jar_id.is_(None),
                                                models.Transaction.obligation_id.is_(None),
                                                models.Transaction.date >= today - timedelta(days=days))
            .order_by(models.Transaction.date.desc(), models.Transaction.id.desc()).all())
+    if include_pending and prof is None:
+        prof = learn(db, family_id)
     out = []
     for tx in txs:
         if tx.id in used:
             continue
         if tx.category_id in cats:
-            out.append(tx)
-        elif (include_pending and tx.amount >= MIN_STATION_AMOUNT and text_matches(pats, tx.title)
-              and _is_pending(db, tx)):
-            out.append(tx)
+            out.append((tx, "sure"))
+        elif include_pending and tx.category_id in pending:
+            c = assess(tx.amount, prof.get(merchant_key(tx.title)), text_matches(pats, tx.title))
+            if c:
+                out.append((tx, c))
     return out
 
 
@@ -266,6 +411,41 @@ def sync_from_tx(db: Session, tx) -> bool:
     return True
 
 
+def hints(v, logs: list, today: Optional[date] = None) -> dict:
+    """What a new manual entry is likely to be: stations used (with their latest prices), usual liters,
+    how often the tank is filled up, where the odometer probably is today."""
+    today = today or today_kyiv()
+    fills = sorted((l for l in logs if l.kind == "fuel"), key=_sort_key)
+    places: dict = {}
+    for l in sorted(logs, key=_sort_key):
+        if not l.place:
+            continue
+        p = places.setdefault(l.place, {"name": l.place, "count": 0, "last_date": None, "prices": {}, "kinds": Counter()})
+        p["count"] += 1
+        p["last_date"] = str(l.date)
+        p["kinds"][l.kind] += 1
+        if l.kind == "fuel" and l.fuel and l.price:
+            p["prices"][l.fuel] = l.price
+    out_places = sorted(places.values(), key=lambda p: (p["last_date"], p["count"]), reverse=True)
+    for p in out_places:
+        p["kind"] = p.pop("kinds").most_common(1)[0][0]
+    fuels = {}
+    for f in vehicle_fuels(v) + [x.fuel for x in fills if x.fuel and x.fuel not in vehicle_fuels(v)]:
+        ff = [x for x in fills if x.fuel == f]
+        if not ff:
+            continue
+        lit = [x.liters for x in ff if x.liters]
+        amt = [x.amount for x in ff if x.amount]
+        fuels[f] = {"last_price": next((x.price for x in reversed(ff) if x.price), None),
+                    "liters": round(median(lit[-10:]), 1) if lit else None,
+                    "amount": round(median(amt[-10:])) if amt else None,
+                    "full_share": round(sum(1 for x in ff[-10:] if x.full_tank) / len(ff[-10:]), 2)}
+    last = fills[-1] if fills else None
+    return {"places": out_places[:8], "fuels": fuels,
+            "last_fuel": last.fuel if last else v.fuel,
+            "odometer_estimate": odometer_estimate(v, logs, today)}
+
+
 # ---------------------------------------------------------------- statistics
 
 def _sort_key(l):
@@ -289,13 +469,21 @@ def _fuel_cost(l) -> float:
     return l.liters * l.price if l.liters and l.price else (l.amount or 0)
 
 
-def fuel_stats(fills: list, segments_out: dict) -> dict:
+def fuel_stats(fills: list, segments_out: dict, secondary: bool = False, today: Optional[date] = None) -> dict:
+    """secondary = the bi-fuel car's second fuel: no l/100 (km are driven mostly on the main one),
+    liters per month instead."""
     fills = sorted(fills, key=_sort_key)
     prices = [(f.date, f.price) for f in fills if f.price]
     lit = [_liters_of(f, prices) for f in fills]
     res = {"fills": len(fills), "liters": round(sum(x[0] or 0 for x in lit), 1), "money": round(sum(f.amount or 0 for f in fills), 2),
            "avg_per100": None, "avg_km": None, "estimated": 0, "last_per100": None, "last_full_date": None,
-           "last_price": prices[-1][1] if prices else None, "last_price_date": str(prices[-1][0]) if prices else None}
+           "last_price": prices[-1][1] if prices else None, "last_price_date": str(prices[-1][0]) if prices else None,
+           "secondary": secondary, "per_month_l": None, "per_month_money": None, "last_date": str(fills[-1].date)}
+    if secondary:
+        days = max(((today or today_kyiv()) - fills[0].date).days, 30)
+        res["per_month_l"] = round(res["liters"] / days * 30.44, 1)
+        res["per_month_money"] = round(res["money"] / days * 30.44)
+        return res
     idx = [i for i, f in enumerate(fills) if f.odometer]
     if len(idx) >= 2:
         a, b = idx[0], idx[-1]
@@ -348,7 +536,7 @@ def vehicle_stats(v, logs: list, today: Optional[date] = None, months: int = 12)
     for f in dict.fromkeys(vehicle_fuels(v) + [l.fuel for l in logs if l.kind == "fuel" and l.fuel]):
         fills = [l for l in logs if l.kind == "fuel" and l.fuel == f]
         if fills:
-            fuels[f] = fuel_stats(fills, segments)
+            fuels[f] = fuel_stats(fills, segments, secondary=f != v.fuel and v.fuel in fuels, today=today)
     pts = odometer_points(v, logs)
     if v.start_odometer and (not pts or v.start_odometer < pts[0][1]):
         first = logs[0].date if logs else today

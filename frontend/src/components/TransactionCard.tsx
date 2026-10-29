@@ -27,7 +27,7 @@ export function TxRow({ tx, categories, onClick }: { tx: Transaction; categories
   const sub = [tx.type === 'Переказ' ? 'Переказ' : cleanCatName(cat?.name), tx.user_name, tx.account !== 'Готівка' ? tx.account : null]
     .filter(Boolean).join(' · ');
   return (
-    <Row icon={tx.type === 'Переказ' ? '↔️' : catIcon(cat)} title={tx.title}
+    <Row icon={tx.type === 'Переказ' ? '↔️' : catIcon(cat)} title={pending ? tx.title.replace(/^❓\s*/, '') : tx.title}
       sub={pending ? <span className="warn">Очікує категорію · {tx.account}</span> : sub}
       end={<TxAmount tx={tx} />} onClick={onClick} />
   );

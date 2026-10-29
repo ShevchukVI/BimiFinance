@@ -1,7 +1,7 @@
 """«Авто»: family cars, their journal (fills, service, washes…) and linking finance transactions to it."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -45,6 +45,7 @@ class LogIn(BaseModel):
     amount: Optional[float] = None
     title: Optional[str] = None
     note: Optional[str] = None
+    place: Optional[str] = None
     transaction_id: Optional[int] = None  # pay with an existing operation
     create_transaction: bool = False  # …or record a new expense in finances
     account: str = "Готівка"
@@ -113,7 +114,7 @@ def tx_title(l: models.VehicleLog) -> str:
         parts.append(f"{_fmt(l.liters)} {V.FUELS.get(l.fuel or '', {}).get('unit', 'л')}")
     if l.price:
         parts.append(f"по {_fmt(l.price)} грн")
-    return f"{icon} {' '.join(parts)}{', до повного' if l.full_tank else ''}"
+    return f"{icon} {' '.join(parts)}{', до повного' if l.full_tank else ''}{f' · {l.place}' if l.place else ''}"
 
 
 @router.get("/families/{family_id}/auto")
@@ -125,8 +126,22 @@ def overview(family_id: int, include_inactive: bool = False, _: None = Depends(r
     vs = q.order_by(models.Vehicle.is_active.desc(), models.Vehicle.sort_order, models.Vehicle.id).all()
     logs = _logs(db, family_id)
     items = [vehicle_out(v, V.vehicle_stats(v, [l for l in logs if l.vehicle_id == v.id])) for v in vs]
-    sug = len(V.candidates(db, family_id)) if any(v.is_active for v in vs) else 0
-    return {"vehicles": items, "suggested": sug}
+    prof = V.learn(db, family_id)
+    cands = V.candidates(db, family_id, prof=prof) if any(v.is_active for v in vs) else []
+    return {"vehicles": items, "suggested": len(cands), "suggested_sure": _fresh_sure(db, family_id, cands, prof, logs)}
+
+
+def _fresh_sure(db: Session, fid: int, cands: list, prof: dict, logs: list) -> int:
+    """«Нові заправки з банку»: sure ones of the last 45 days that fit a car (a borrowed diesel Jeep doesn't)."""
+    since = V.today_kyiv() - timedelta(days=45)
+    n = 0
+    for tx, conf in cands:
+        if conf != "sure" or tx.date < since:
+            continue
+        v = V.pick_vehicle(db, fid, tx.user_id)
+        if v is not None and not V.draft_from_tx(db, tx, v, prof, [l for l in logs if l.vehicle_id == v.id])["foreign_fuel"]:
+            n += 1
+    return n
 
 
 def _apply_vehicle(v: models.Vehicle, data: dict, db: Session, fid: int):
@@ -188,7 +203,7 @@ def log_out(l: models.VehicleLog, tx=None, km: Optional[int] = None, seg: Option
     icon, label = V.KINDS.get(l.kind, ("📦", "Інше"))
     return {"id": l.id, "vehicle_id": l.vehicle_id, "date": str(l.date), "kind": l.kind, "icon": icon, "label": label,
             "odometer": l.odometer, "fuel": l.fuel, "liters": l.liters, "price": l.price, "full_tank": l.full_tank,
-            "amount": l.amount or 0, "title": l.title or "", "note": l.note or "", "source": l.source,
+            "amount": l.amount or 0, "title": l.title or "", "note": l.note or "", "source": l.source, "place": l.place or "",
             "transaction_id": l.transaction_id, "transaction": _tx_brief(tx) if tx is not None else None,
             "km_since": km, "segment": seg, "user_name": (users or {}).get(l.user_id)}
 
@@ -218,6 +233,8 @@ def _apply_log(l: models.VehicleLog, data: dict, db: Session, fid: int):
         _vehicle(db, fid, data["vehicle_id"])
     if "date" in data:
         data["date"] = _d(data["date"])
+    if "place" in data:
+        data["place"] = (data["place"] or "").strip()[:60] or None
     for k in ("amount", "liters", "price", "odometer"):
         if data.get(k) is not None and data[k] < 0:
             raise HTTPException(400, "Значення не може бути від'ємним")
@@ -228,6 +245,20 @@ def _apply_log(l: models.VehicleLog, data: dict, db: Session, fid: int):
     else:
         l.fuel, l.liters, l.price, l.full_tank = None, None, None, False
     l.full_tank = bool(l.full_tank)
+
+
+def _teach_place(db: Session, l: models.VehicleLog):
+    """«AZS 4» is «Пролюкс»: naming the station once names every other entry from that bank merchant."""
+    tx = db.get(models.Transaction, l.transaction_id) if l.transaction_id else None
+    key = V.merchant_key(tx.title) if tx is not None else ""
+    if not key or V.brand(key):  # «WOG» names itself
+        return
+    others = (db.query(models.VehicleLog, models.Transaction).join(
+        models.Transaction, models.Transaction.id == models.VehicleLog.transaction_id)
+        .filter(models.VehicleLog.family_id == l.family_id, models.VehicleLog.id != l.id).all())
+    for o, t in others:
+        if V.merchant_key(t.title) == key and (not o.place or o.place == key.upper()):
+            o.place = l.place
 
 
 def _attach_tx(db: Session, l: models.VehicleLog, tx: models.Transaction):
@@ -258,6 +289,8 @@ def create_log(family_id: int, payload: LogIn, actor: Actor = Depends(get_actor)
         raise HTTPException(400, "Вкажіть пробіг")
     if tx_id:
         _attach_tx(db, l, _tx(db, family_id, tx_id))
+        if l.place:
+            _teach_place(db, l)
     elif create_tx and (l.amount or 0) > 0 and uid:
         tx = crud.create_transaction(db, family_id, uid, V.category_for(db, family_id, l.kind), l.amount, crud.TYPE_EXPENSE,
                                      tx_title(l), l.note or (f"Пробіг: {l.odometer}" if l.odometer else v.name),
@@ -276,7 +309,10 @@ def update_log(family_id: int, log_id: int, payload: LogIn, _: None = Depends(re
     tx_id = data.pop("transaction_id", None)
     data.pop("create_transaction", None)
     data.pop("account", None)
+    old_place = l.place
     _apply_log(l, data, db, family_id)
+    if l.place and l.place != old_place:
+        _teach_place(db, l)
     if tx_id and tx_id != l.transaction_id:
         _attach_tx(db, l, _tx(db, family_id, tx_id))
     elif l.transaction_id:
@@ -301,12 +337,51 @@ def delete_log(family_id: int, log_id: int, delete_transaction: bool = False, _:
 
 @router.get("/families/{family_id}/auto/suggestions")
 def suggestions(family_id: int, _: None = Depends(require_family), db: Session = Depends(get_db)):
-    """Car-looking expenses that are not in the journal yet, each with a pre-filled entry."""
+    """Car-looking expenses that are not in the journal yet, each with a pre-filled entry and a confidence
+    («sure» — the history says it is a fill; «maybe» — a station bill that may be coffee and snacks)."""
+    prof = V.learn(db, family_id)
+    logs = _logs(db, family_id)
     out = []
-    for tx in V.candidates(db, family_id)[:60]:
+    for tx, conf in V.candidates(db, family_id, prof=prof)[:60]:
         v = V.pick_vehicle(db, family_id, tx.user_id)
-        out.append({"transaction": _tx_brief(tx), "draft": V.draft_from_tx(db, tx, v)})
+        d = V.draft_from_tx(db, tx, v, prof, [l for l in logs if v is not None and l.vehicle_id == v.id])
+        d["confidence"] = conf
+        out.append({"transaction": _tx_brief(tx), "draft": d})
     return out
+
+
+class AcceptIn(BaseModel):
+    transaction_ids: list[int]
+
+
+@router.post("/families/{family_id}/auto/suggestions/accept")
+def accept(family_id: int, payload: AcceptIn, actor: Actor = Depends(get_actor), _: None = Depends(require_family),
+           db: Session = Depends(get_db)):
+    """«Додати всі»: journal entries from the predicted drafts (pending operations get a car category)."""
+    prof = V.learn(db, family_id)
+    used = V.logged_tx_ids(db, family_id)
+    added = 0
+    for tx_id in dict.fromkeys(payload.transaction_ids):
+        tx = _tx(db, family_id, tx_id)
+        if tx.id in used or not V._linkable(tx):
+            continue
+        v = V.pick_vehicle(db, family_id, tx.user_id)
+        if v is None:
+            raise HTTPException(400, "Оберіть авто для кожної операції окремо")
+        d = V.draft_from_tx(db, tx, v, prof)
+        O.unlink(db, tx)
+        db.flush()
+        db.add(V.log_from_draft(d, family_id, tx.user_id or _actor_user_id(db, actor, family_id), "transaction"))
+        V.apply_category(db, tx, d["kind"])
+        added += 1
+    db.commit()
+    return {"added": added}
+
+
+@router.get("/families/{family_id}/vehicles/{vehicle_id}/hints")
+def hints(family_id: int, vehicle_id: int, _: None = Depends(require_family), db: Session = Depends(get_db)):
+    v = _vehicle(db, family_id, vehicle_id)
+    return V.hints(v, _logs(db, family_id, v.id))
 
 
 @router.get("/families/{family_id}/auto/draft")
@@ -338,8 +413,9 @@ def import_history(family_id: int, vehicle_id: int, _: None = Depends(require_fa
     Fills of a fuel this car doesn't use (a borrowed diesel car) are left out for a manual decision."""
     v = _vehicle(db, family_id, vehicle_id)
     linked, skipped = 0, []
-    for tx in V.candidates(db, family_id, days=3650, include_pending=False):
-        d = V.draft_from_tx(db, tx, v)
+    prof = V.learn(db, family_id)
+    for tx, _c in V.candidates(db, family_id, days=3650, include_pending=False):
+        d = V.draft_from_tx(db, tx, v, prof)
         if d["foreign_fuel"]:
             skipped.append(_tx_brief(tx))
             continue
