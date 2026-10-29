@@ -94,6 +94,7 @@ class TransactionCreate(BaseModel):
     date: date
     currency: str = "UAH"
     jar_id: Optional[int] = None  # поповнення/зняття до/з скарбнички
+    mcc: Optional[int] = None  # Monobank MCC
 class TransactionUpdate(BaseModel):
     amount: Optional[float] = None
     type: Optional[str] = None
@@ -129,6 +130,7 @@ class TransactionOut(BaseModel):
     currency: str = "UAH"
     jar_id: Optional[int] = None
     obligation_id: Optional[int] = None  # кредит / розстрочка / підписка
+    mcc: Optional[int] = None
     user_name: Optional[str] = None  # ім'я автора (атрибуція в Mini App)
     model_config = {"from_attributes": True}
 

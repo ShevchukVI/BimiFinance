@@ -3,18 +3,19 @@ import { toast } from '../toast';
 import { day, money, monthYear, plural, qty } from '../format';
 import { confirmAsync, haptic } from '../tg';
 import type { FamilyUser } from '../types';
-import { Badge, Banner, Button, Card, Chips, Empty, Row, Segmented, Spinner } from '../ui';
+import { Badge, Banner, Button, Card, Chips, Empty, Row, Section, Segmented, Spinner } from '../ui';
 import { errText } from '../housing/api';
 import { autoApi } from './api';
 import AutoStats from './AutoStats';
+import DocSheet, { docWhen } from './DocSheet';
 import LogSheet from './LogSheet';
 import SuggestSheet from './SuggestSheet';
 import VehicleForm from './VehicleForm';
-import { AutoOverview, Fuel, FUELS, LogDraft, LogKind, TxBrief, Vehicle, VLog } from './types';
+import { AutoOverview, Fuel, FUELS, LogDraft, LogKind, TxBrief, VDoc, Vehicle, VLog } from './types';
 
 export type AutoAction = { txId: number; vehicleId: number } | null;
 type SheetState = { kind: 'log'; log?: VLog; draft?: LogDraft; tx?: TxBrief | null; initialKind?: LogKind }
-  | { kind: 'vehicle'; vehicle?: Vehicle } | { kind: 'suggest' };
+  | { kind: 'vehicle'; vehicle?: Vehicle } | { kind: 'suggest' } | { kind: 'doc'; doc?: VDoc };
 type Filter = 'all' | 'fuel' | 'care' | 'other';
 const CARE: LogKind[] = ['service', 'repair', 'tires'];
 
@@ -178,6 +179,26 @@ export default function AutoPage({ familyId, overview, setOverview, accounts, fa
         </div>
       )}
 
+      {(() => {
+        const docs = v.documents || [];
+        const urgent = docs.filter(d => d.status !== 'active');
+        return (
+          <Section title="Страховка" action={docs.length ? '+ Поліс' : undefined} onAction={() => setSheet({ kind: 'doc' })}>
+            <Card flush>
+              {docs.map(d => (
+                <Row key={d.id} icon={d.icon} title={[d.label.replace(' (ОСЦПВ)', ''), d.company].filter(Boolean).join(' · ')}
+                  sub={<span className={d.status === 'expired' ? 'danger' : d.status === 'soon' ? 'warn' : ''}>{docWhen(d)}</span>}
+                  end={<span className="hstack" style={{ gap: 6 }}>{d.has_file && <span title="Є файл">📎</span>}{d.url && <span title="Є посилання">🌐</span>}
+                    {d.status !== 'active' && <Badge tone={d.status === 'expired' ? 'danger' : 'warn'}>{d.status === 'expired' ? 'закінчився' : 'скоро'}</Badge>}</span>}
+                  chevron onClick={() => setSheet({ kind: 'doc', doc: d })} />
+              ))}
+              {docs.length === 0 && <Row icon="🛡️" title="Додати автоцивілку" sub="Нагадаю за місяць до кінця · PDF чи посилання завжди під рукою" chevron onClick={() => setSheet({ kind: 'doc' })} />}
+            </Card>
+            {urgent.length > 0 && <div className="muted xsmall" style={{ padding: '0 4px' }}>Новий поліс додайте окремо — старий лишиться в історії.</div>}
+          </Section>
+        );
+      })()}
+
       <Segmented value={seg} onChange={setSeg} options={[{ value: 'log', label: 'Журнал' }, { value: 'stats', label: 'Графіки' }]} />
 
       {seg === 'log' && (logs === null ? <Spinner /> : logs.length === 0 ? (
@@ -190,9 +211,9 @@ export default function AutoPage({ familyId, overview, setOverview, accounts, fa
               <div className="date-head spread"><span>{monthYear(`${g.month}-01`)}</span>{g.total > 0 && <span className="tnum">{money(g.total, 'UAH', 0)}</span>}</div>
               <Card flush>
                 {g.items.map(l => (
-                  <Row key={l.id} icon={l.icon} title={<>{logTitle(l)}{l.place && <span className="muted"> · {l.place}</span>}{l.full_tank && <span className="badge-mini">повний</span>}</>}
+                  <Row key={l.id} icon={l.icon} title={<>{logTitle(l)}{l.place && !logTitle(l).toLowerCase().includes(l.place.toLowerCase()) && <span className="muted"> · {l.place}</span>}{l.full_tank && <span className="badge-mini">повний</span>}</>}
                     sub={[day(l.date), l.odometer ? `${qty(l.odometer, 0)} км` : null, l.km_since ? `+${qty(l.km_since, 0)} км` : null,
-                      l.segment ? `${qty(l.segment.per100, 1)} л/100` : null, l.kind !== 'fuel' && l.note ? l.note : null,
+                      l.segment ? `${qty(l.segment.per100, 1)} л/100` : null, v.driver_ids.length > 1 ? l.user_name : null, l.kind !== 'fuel' && l.note ? l.note : null,
                       !l.transaction_id && l.kind !== 'odometer' && l.amount > 0 ? 'не у фінансах' : null].filter(Boolean).join(' · ')}
                     end={l.amount > 0 ? <div className="end-stack"><b className="tnum">{money(l.amount, 'UAH', 0)}</b>{l.kind === 'fuel' && l.price ? <span className="muted xsmall tnum">{qty(l.price)} ₴/л</span> : null}</div> : undefined}
                     onClick={() => setSheet({ kind: 'log', log: l })} />
@@ -208,6 +229,8 @@ export default function AutoPage({ familyId, overview, setOverview, accounts, fa
         initialKind={sheet.initialKind} accounts={accounts} onClose={() => setSheet(null)} onSaved={withTx => changed(withTx || !!sheet.tx)} />}
       {sheet?.kind === 'vehicle' && <VehicleForm familyId={familyId} vehicle={sheet.vehicle} familyUsers={familyUsers} onClose={() => setSheet(null)}
         onSaved={nv => { setSheet(null); setVid(nv ? nv.id : null); reload(); }} />}
+      {sheet?.kind === 'doc' && <DocSheet familyId={familyId} vehicleId={v.id} doc={sheet.doc} accounts={accounts} onClose={() => setSheet(null)}
+        onSaved={financeToo => changed(financeToo)} />}
       {sheet?.kind === 'suggest' && <SuggestSheet familyId={familyId} onClose={() => { setSheet(null); reload(); }}
         onPick={sg => setSheet({ kind: 'log', draft: sg.draft, tx: sg.transaction })} onChanged={() => { /* reloaded on close */ }} />}
     </div>

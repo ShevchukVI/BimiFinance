@@ -50,7 +50,7 @@ def create_transaction(tx: schemas.TransactionCreate, actor: Actor = Depends(get
         family_id, user_id = actor.family_id, actor.user_id  # family_id never trusted from body
     obj = crud.create_transaction(db, family_id, user_id, tx.category_id, tx.amount, tx.type, tx.title,
                                   tx.note, tx.account, tx.date, tx.mono_id,
-                                  currency=tx.currency, jar_id=tx.jar_id)
+                                  currency=tx.currency, jar_id=tx.jar_id, mcc=tx.mcc)
     # credit / subscription / housing payment recognised by its bank description → linked automatically
     if auto_link(db, obj):
         db.refresh(obj)

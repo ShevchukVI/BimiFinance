@@ -50,6 +50,13 @@ export function pushBack(handler: () => void): () => void {
   };
 }
 
+/** Open an external page / file in Telegram's browser (a plain new tab outside Telegram). */
+export function openUrl(url: string) {
+  const w = tg();
+  try { if (w?.openLink) { w.openLink(url); return; } } catch { /**/ }
+  window.open(url, '_blank', 'noopener');
+}
+
 export function copyText(text: string) {
   try { navigator.clipboard?.writeText(text); } catch { /**/ }
 }

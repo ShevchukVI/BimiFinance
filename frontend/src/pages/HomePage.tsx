@@ -161,9 +161,12 @@ export default function HomePage({
         const v = auto.vehicles[0];
         const main = v.stats.fuels[v.fuel];
         const fresh = auto.suggested_sure;
+        const doc = (v.documents || []).find(d => d.status !== 'active');
         return (
           <Section title="Авто" action="Відкрити" onAction={onAuto}>
             <Card flush>
+              {doc && <Row icon={doc.icon} iconAccent title={doc.status === 'expired' ? `${doc.label} закінчилась` : `${doc.label}: ще ${doc.days_left} ${plural(doc.days_left || 0, 'день', 'дні', 'днів')}`}
+                sub={<span className={doc.status === 'expired' ? 'danger' : 'warn'}>{doc.status === 'expired' ? 'Оформіть новий поліс' : `до ${day(doc.end_date)} — час продовжити`}</span>} chevron onClick={onAuto} />}
               <Row icon={fresh ? '⛽' : v.icon} iconAccent
                 title={fresh ? `${fresh} ${plural(fresh, 'нова заправка', 'нові заправки', 'нових заправок')} з банку` : v.name}
                 sub={fresh ? 'Додати в журнал одним дотиком' : [v.stats.odometer ? `${qty(v.stats.odometer, 0)} км` : null,

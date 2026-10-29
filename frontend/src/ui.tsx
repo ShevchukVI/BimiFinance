@@ -58,13 +58,14 @@ export function Row({ icon, iconAccent, title, sub, end, onClick, chevron, compa
   );
 }
 
-export function Chips<T extends string | number>({ options, value, onChange, scroll, small }: {
+export function Chips<T extends string | number>({ options, value, onChange, scroll, small, multi }: {
   options: { value: T; label: ReactNode }[]; value: T | null; onChange: (v: T) => void; scroll?: boolean; small?: boolean;
+  multi?: T[];  // several chips on at once (the caller toggles in onChange)
 }) {
   return (
     <div className={`chips ${scroll ? 'chips--scroll' : ''}`}>
       {options.map(o => (
-        <button key={String(o.value)} className={`chip ${small ? 'chip--sm' : ''} ${o.value === value ? 'chip--on' : ''}`}
+        <button key={String(o.value)} className={`chip ${small ? 'chip--sm' : ''} ${(multi ? multi.includes(o.value) : o.value === value) ? 'chip--on' : ''}`}
           onClick={() => { haptic('select'); onChange(o.value); }}>{o.label}</button>
       ))}
     </div>

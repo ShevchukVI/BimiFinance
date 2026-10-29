@@ -298,12 +298,18 @@ def log_from_draft(d: dict, family_id: int, user_id: Optional[int], source: str)
                              place=d.get("place"))
 
 
+def drivers(v) -> list[int]:
+    ids = [int(x) for x in (v.driver_ids or "").split(",") if x.strip().isdigit()]
+    return ids or ([v.user_id] if v.user_id else [])
+
+
 def pick_vehicle(db: Session, family_id: int, user_id: Optional[int]):
+    """The car an operation of this person belongs to: the only car, or the only one they drive."""
     vs = (db.query(models.Vehicle).filter(models.Vehicle.family_id == family_id, models.Vehicle.is_active.is_(True))
           .order_by(models.Vehicle.sort_order, models.Vehicle.id).all())
     if len(vs) == 1:
         return vs[0]
-    mine = [v for v in vs if v.user_id and v.user_id == user_id]
+    mine = [v for v in vs if user_id in drivers(v)]
     return mine[0] if len(mine) == 1 else None
 
 

@@ -1,4 +1,4 @@
-from sqlalchemy import (BigInteger, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text,
+from sqlalchemy import (BigInteger, LargeBinary, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text,
                         UniqueConstraint)
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -71,6 +71,7 @@ class Transaction(Base):
     currency = Column(String, default="UAH", nullable=False)  # UAH/USD/EUR...
     jar_id = Column(Integer, ForeignKey("jars.id"), nullable=True)  # deposit/withdrawal to/from jar
     obligation_id = Column(Integer, ForeignKey("obligations.id", ondelete="SET NULL"), nullable=True)  # credit/subscription payment
+    mcc = Column(Integer, nullable=True)  # Monobank merchant category code (5541 АЗС, 4111 транспорт…) — a hint for categories
     family = relationship("Family", back_populates="transactions")
     user = relationship("User", back_populates="transactions")
     category = relationship("Category", back_populates="transactions")
@@ -339,7 +340,8 @@ class Vehicle(Base):
     tank2_l = Column(Float, nullable=True)
     start_odometer = Column(Integer, nullable=True)
     match_pattern = Column(String, default="")  # bank descriptions of stations / washes («AZS|OKKO|DEWASH»)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # main driver (picks the car for auto-linking)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # first driver (kept for older clients)
+    driver_ids = Column(String, nullable=True)  # "1,2" — who drives it; picks the car for auto-linking
     is_active = Column(Boolean, default=True, nullable=False)
     sort_order = Column(Integer, default=0)
     note = Column(String, default="")
@@ -364,6 +366,28 @@ class VehicleLog(Base):
     source = Column(String, default="manual")  # manual | transaction | import
     transaction_id = Column(Integer, ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True, unique=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class VehicleDocument(Base):
+    """Insurance policy (ОСЦПВ, КАСКО, Зелена карта…) of a car: dates, price, the PDF and/or an online link."""
+    __tablename__ = "vehicle_documents"
+    id = Column(Integer, primary_key=True)
+    family_id = Column(Integer, ForeignKey("families.id"), nullable=False, index=True)
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String, nullable=False, default="osago")  # osago | kasko | green_card | other
+    company = Column(String, default="")
+    number = Column(String, default="")
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    amount = Column(Float, nullable=True)
+    url = Column(String, default="")  # online policy view (insurer / МТСБУ)
+    file = Column(LargeBinary, nullable=True)  # PDF / photo, ≤ 10 MB
+    file_name = Column(String, nullable=True)
+    file_type = Column(String, nullable=True)
+    log_id = Column(Integer, ForeignKey("vehicle_logs.id", ondelete="SET NULL"), nullable=True)  # the payment
+    note = Column(String, default="")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=True)
 
 
 class VehicleIgnoredTx(Base):

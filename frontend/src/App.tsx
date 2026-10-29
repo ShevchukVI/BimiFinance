@@ -338,7 +338,8 @@ export default function App() {
       {editBudgets && familyId && <BudgetsSheet familyId={familyId} categories={categories} budgets={budgets} onClose={() => setEditBudgets(false)} onSaved={setBudgets} />}
       {historyJar && familyId && <JarHistoryModal jar={historyJar} familyId={familyId} onClose={() => setHistoryJar(null)} />}
       {topupJar && <TopUpJarModal jar={topupJar} onClose={() => setTopupJar(null)} onToppedUp={onJarTopUp} />}
-      {isInboxOpen && familyId && <InboxModal familyId={familyId} categories={categories} onClose={() => setIsInboxOpen(false)} onCategorized={handleCategorized} />}
+      {isInboxOpen && familyId && <InboxModal familyId={familyId} categories={categories} onClose={() => setIsInboxOpen(false)} onCategorized={handleCategorized}
+        onBulk={() => { refreshTransactions(); refreshStats(); refreshAuto(); }} />}
       {viewingTx && familyId && <TxDetailsSheet tx={viewingTx} categories={categories} familyId={familyId} onClose={() => setViewingTx(null)}
         onEdit={() => { setEditingTx(viewingTx); setViewingTx(null); }} onCopy={copyToClipboard}
         onLink={() => { setLinkTx(viewingTx); setViewingTx(null); }} />}

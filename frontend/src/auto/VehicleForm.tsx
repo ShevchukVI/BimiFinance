@@ -20,7 +20,8 @@ export default function VehicleForm({ familyId, vehicle, familyUsers, onClose, o
   const [fuel, setFuel] = useState<Fuel>(vehicle?.fuel || 'petrol');
   const [fuel2, setFuel2] = useState<Fuel | 'none'>(vehicle?.fuel2 || 'none');
   const [odo, setOdo] = useState(vehicle?.start_odometer ? String(vehicle.start_odometer) : '');
-  const [userId, setUserId] = useState<number | null>(vehicle?.user_id ?? null);
+  const [drivers, setDrivers] = useState<number[]>(vehicle?.driver_ids || []);
+  const toggleDriver = (id: number) => setDrivers(d => d.includes(id) ? d.filter(x => x !== id) : [...d, id]);
   const [pattern, setPattern] = useState(vehicle?.match_pattern ?? '');
   const [note, setNote] = useState(vehicle?.note || '');
   const [busy, setBusy] = useState(false);
@@ -31,7 +32,7 @@ export default function VehicleForm({ familyId, vehicle, familyUsers, onClose, o
     setBusy(true);
     const body: Record<string, unknown> = {
       name: name.trim(), icon, plate: plate.trim().toUpperCase(), fuel, fuel2: fuel2 === 'none' || fuel2 === fuel ? null : fuel2,
-      start_odometer: Number(odo.replace(/\D/g, '')) || null, user_id: userId, note: note.trim(),
+      start_odometer: Number(odo.replace(/\D/g, '')) || null, driver_ids: drivers, note: note.trim(),
     };
     if (vehicle) body.match_pattern = pattern.trim();
     try {
@@ -67,8 +68,8 @@ export default function VehicleForm({ familyId, vehicle, familyUsers, onClose, o
         <input className="input tnum" inputMode="numeric" placeholder="км" value={odo} onChange={e => setOdo(e.target.value.replace(/[^\d ]/g, ''))} />
       </Field>
       {familyUsers.length > 1 && (
-        <Field label="Хто їздить" hint="Якщо в сім'ї кілька авто, витрати цієї людини потраплятимуть у це авто.">
-          <Chips small value={userId} onChange={id => setUserId(id === userId ? null : id)} options={familyUsers.map(u => ({ value: u.id, label: u.name }))} />
+        <Field label="Хто їздить" hint="Можна кількох. Якщо в сім'ї кілька авто, заправки водія потраплятимуть у його авто.">
+          <Chips small value={null} multi={drivers} onChange={toggleDriver} options={familyUsers.map(u => ({ value: u.id, label: u.name }))} />
         </Field>
       )}
       {vehicle && (

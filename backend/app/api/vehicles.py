@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app import crud, models
 from app.api.housing import _actor_user_id
+from app.api.vehicle_docs import docs_brief
 from app.core.deps import Actor, get_actor, require_family
 from app.database import get_db
 from app.services import obligations as O
@@ -29,6 +30,7 @@ class VehicleIn(BaseModel):
     start_odometer: Optional[int] = None
     match_pattern: Optional[str] = None
     user_id: Optional[int] = None
+    driver_ids: Optional[list[int]] = None
     is_active: Optional[bool] = None
     note: Optional[str] = None
 
@@ -87,7 +89,7 @@ def _tx_brief(t) -> dict:
 def vehicle_out(v: models.Vehicle, stats: Optional[dict] = None) -> dict:
     out = {"id": v.id, "name": v.name, "icon": v.icon or "🚗", "plate": v.plate or "", "fuel": v.fuel, "fuel2": v.fuel2,
            "tank_l": v.tank_l, "tank2_l": v.tank2_l, "start_odometer": v.start_odometer,
-           "match_pattern": v.match_pattern or "", "user_id": v.user_id, "is_active": v.is_active, "note": v.note or ""}
+           "match_pattern": v.match_pattern or "", "user_id": v.user_id, "driver_ids": V.drivers(v), "is_active": v.is_active, "note": v.note or ""}
     if stats is not None:
         out["stats"] = {k: x for k, x in stats.items() if k not in ("segments", "prices")}
     return out
@@ -125,7 +127,9 @@ def overview(family_id: int, include_inactive: bool = False, _: None = Depends(r
         q = q.filter(models.Vehicle.is_active.is_(True))
     vs = q.order_by(models.Vehicle.is_active.desc(), models.Vehicle.sort_order, models.Vehicle.id).all()
     logs = _logs(db, family_id)
-    items = [vehicle_out(v, V.vehicle_stats(v, [l for l in logs if l.vehicle_id == v.id])) for v in vs]
+    docs = docs_brief(db, family_id)
+    items = [{**vehicle_out(v, V.vehicle_stats(v, [l for l in logs if l.vehicle_id == v.id])), "documents": docs.get(v.id, [])}
+             for v in vs]
     prof = V.learn(db, family_id)
     cands = V.candidates(db, family_id, prof=prof) if any(v.is_active for v in vs) else []
     return {"vehicles": items, "suggested": len(cands), "suggested_sure": _fresh_sure(db, family_id, cands, prof, logs)}
@@ -150,9 +154,16 @@ def _apply_vehicle(v: models.Vehicle, data: dict, db: Session, fid: int):
             raise HTTPException(400, "Невірне паливо")
     if "fuel2" in data and data["fuel2"] == (data.get("fuel") or v.fuel):
         data["fuel2"] = None
-    if data.get("user_id") and not db.query(models.FamilyMember).filter(
-            models.FamilyMember.family_id == fid, models.FamilyMember.user_id == data["user_id"]).first():
-        raise HTTPException(400, "Невірний учасник")
+    if "driver_ids" in data:
+        ids = list(dict.fromkeys(data.pop("driver_ids") or []))
+        data["driver_ids"] = ",".join(map(str, ids)) or None
+        data["user_id"] = ids[0] if ids else None
+    elif "user_id" in data:
+        data["driver_ids"] = str(data["user_id"]) if data["user_id"] else None
+    for uid in V.drivers(models.Vehicle(driver_ids=data.get("driver_ids"))) if "driver_ids" in data else []:
+        if not db.query(models.FamilyMember).filter(models.FamilyMember.family_id == fid,
+                                                    models.FamilyMember.user_id == uid).first():
+            raise HTTPException(400, "Невірний учасник")
     for k, x in data.items():
         setattr(v, k, x)
 

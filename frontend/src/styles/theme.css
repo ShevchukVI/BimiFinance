@@ -245,3 +245,6 @@ button.stat:active { opacity: .7; }
   font: inherit; font-weight: 600; text-align: center; cursor: pointer; }
 .row-more:active { opacity: .6; }
 .grow { flex: 1; }
+
+/* ---------- Inbox: suggestion groups ---------- */
+.inbox-peek { display: grid; gap: 4px; padding: 8px 10px; border-radius: 10px; background: var(--fill); max-height: 180px; overflow-y: auto; }

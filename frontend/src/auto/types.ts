@@ -15,8 +15,20 @@ export interface VehicleStats {
 }
 export interface Vehicle {
   id: number; name: string; icon: string; plate: string; fuel: Fuel; fuel2: Fuel | null; tank_l: number | null; tank2_l: number | null;
-  start_odometer: number | null; match_pattern: string; user_id: number | null; is_active: boolean; note: string; stats: VehicleStats;
+  start_odometer: number | null; match_pattern: string; user_id: number | null; driver_ids: number[]; is_active: boolean; note: string; stats: VehicleStats; documents?: VDoc[];
 }
+export type DocKind = 'osago' | 'kasko' | 'green_card' | 'other';
+export interface VDoc {
+  id: number; vehicle_id: number; kind: DocKind; icon: string; label: string; company: string; number: string;
+  start_date: string | null; end_date: string | null; amount: number | null; url: string; note: string; log_id: number | null;
+  has_file: boolean; file_name: string | null; days_left: number | null; status: 'active' | 'soon' | 'expired';
+}
+export const DOC_KINDS: { value: DocKind; icon: string; label: string; short: string }[] = [
+  { value: 'osago', icon: '🛡️', label: 'Автоцивілка (ОСЦПВ)', short: 'Автоцивілка' },
+  { value: 'kasko', icon: '💎', label: 'КАСКО', short: 'КАСКО' },
+  { value: 'green_card', icon: '🌍', label: 'Зелена карта', short: 'Зелена карта' },
+  { value: 'other', icon: '📄', label: 'Інший поліс', short: 'Інше' },
+];
 export interface TxBrief { id: number; date: string; amount: number; title: string; account: string; note: string; }
 export interface VLog {
   id: number; vehicle_id: number; date: string; kind: LogKind; icon: string; label: string; odometer: number | null;

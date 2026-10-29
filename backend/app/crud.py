@@ -264,13 +264,13 @@ def get_transaction_by_id(db: Session, tx_id: int): return db.query(models.Trans
 def get_tx_by_mono(db: Session, mono_id: str): return db.query(models.Transaction).filter(models.Transaction.mono_id == mono_id).first()
 
 def create_transaction(db: Session, family_id: int, user_id: int, category_id: int, amount: float, type: str, title: str, note: str, account: str, date, mono_id=None,
-                       currency: str = DEFAULT_CURRENCY, jar_id: int = None):
+                       currency: str = DEFAULT_CURRENCY, jar_id: int = None, mcc: int = None):
     if mono_id:
         existing = db.query(models.Transaction).filter(models.Transaction.mono_id == mono_id).first()
         if existing: return existing
     obj = models.Transaction(family_id=family_id, user_id=user_id, category_id=category_id, amount=amount,
                              type=type, title=title, note=note, account=account, mono_id=mono_id,
-                             date=date, currency=currency or DEFAULT_CURRENCY, jar_id=jar_id)
+                             date=date, currency=currency or DEFAULT_CURRENCY, jar_id=jar_id, mcc=mcc)
     db.add(obj)
     db.commit()
     db.refresh(obj)

@@ -90,6 +90,9 @@ def run_migrations():
             # Personal bottom-bar tabs + car journal: station of a fill
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS tab_prefs VARCHAR",
             "ALTER TABLE vehicle_logs ADD COLUMN IF NOT EXISTS place VARCHAR",
+            "ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS driver_ids VARCHAR",
+            "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS mcc INTEGER",
+            "UPDATE vehicles SET driver_ids = CAST(user_id AS VARCHAR) WHERE driver_ids IS NULL AND user_id IS NOT NULL",
         ):
             conn.execute(text(stmt))
 

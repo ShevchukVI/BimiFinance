@@ -264,3 +264,41 @@ def test_personal_tab_prefs(db, seeded):
     r = client.put("/users/me/tabs", headers=h, json={"tab": "auto", "show": None})
     assert r.json()["tab_prefs"] == {}
     assert client.put("/users/me/tabs", headers=h, json={"tab": "bogus", "show": True}).status_code == 422
+
+
+def test_two_drivers_and_two_cars(db, seeded):
+    fid, a, m = seeded["family"].id, seeded["admin"].id, seeded["member"].id
+    v, cats = _seed_car(db, seeded)
+    r = client.put(f"/families/{fid}/vehicles/{v.id}", headers=_hdr(fid), json={"driver_ids": [a, m]})
+    assert r.json()["driver_ids"] == [a, m] and r.json()["user_id"] == a
+    second = client.post(f"/families/{fid}/vehicles", headers=_hdr(fid), json={"name": "Jeep", "fuel": "diesel", "driver_ids": [m]}).json()
+    client.put(f"/families/{fid}/vehicles/{v.id}", headers=_hdr(fid), json={"driver_ids": [a]})
+    db.expire_all()
+    assert V.pick_vehicle(db, fid, a).id == v.id and V.pick_vehicle(db, fid, m).id == second["id"]
+    assert client.put(f"/families/{fid}/vehicles/{v.id}", headers=_hdr(fid), json={"driver_ids": [999]}).status_code == 400
+
+
+def test_insurance_policy_file_link_and_payment(db, seeded):
+    v, cats = _seed_car(db, seeded)
+    fid = seeded["family"].id
+    r = client.post(f"/families/{fid}/vehicle-documents", headers=_hdr(fid), json={
+        "vehicle_id": v.id, "kind": "osago", "company": "ARX", "number": "EP-123", "start_date": "2026-03-10",
+        "amount": 2100, "url": "https://policy.mtsbu.ua/x", "create_expense": True, "account": "Готівка"})
+    d = r.json()
+    assert r.status_code == 200 and d["end_date"] == "2027-03-09" and d["log_id"] and not d["has_file"]
+    logs = client.get(f"/families/{fid}/vehicles/{v.id}/logs", headers=_hdr(fid)).json()
+    assert logs[0]["kind"] == "insurance" and logs[0]["amount"] == 2100 and logs[0]["transaction_id"]
+    assert client.post(f"/families/{fid}/vehicle-documents", headers=_hdr(fid), json={
+        "vehicle_id": v.id, "url": "javascript:alert(1)"}).status_code == 400
+    # PDF: raw body upload → signed link → inline file; wrong type / fake PDF refused
+    up = client.put(f"/families/{fid}/vehicle-documents/{d['id']}/file?name=osago.pdf", headers={**_hdr(fid), "Content-Type": "application/pdf"},
+                    content=b"%PDF-1.4 test")
+    assert up.status_code == 200 and up.json()["has_file"]
+    assert client.put(f"/families/{fid}/vehicle-documents/{d['id']}/file", headers={**_hdr(fid), "Content-Type": "application/pdf"},
+                      content=b"<html>").status_code == 415
+    path = client.get(f"/families/{fid}/vehicle-documents/{d['id']}/file-link", headers=_hdr(fid)).json()["path"]
+    f = client.get(path)
+    assert f.status_code == 200 and f.content == b"%PDF-1.4 test" and f.headers["content-type"] == "application/pdf"
+    assert client.get(path.replace("t=", "t=x")).status_code == 403
+    ov = client.get(f"/families/{fid}/auto", headers=_hdr(fid)).json()
+    assert ov["vehicles"][0]["documents"][0]["number"] == "EP-123" and "days_left" in ov["vehicles"][0]["documents"][0]

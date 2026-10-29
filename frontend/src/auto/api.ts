@@ -1,5 +1,5 @@
 import api from '../api';
-import type { AutoOverview, Hints, LogDraft, Suggestion, TxBrief, Vehicle, VehicleStats, VLog } from './types';
+import type { AutoOverview, Hints, VDoc, LogDraft, Suggestion, TxBrief, Vehicle, VehicleStats, VLog } from './types';
 
 const fam = (fid: number) => `/families/${fid}`;
 
@@ -18,6 +18,15 @@ export const autoApi = {
     api.get<{ transaction: TxBrief; draft: LogDraft }>(`${fam(fid)}/auto/draft?tx_id=${txId}${vehicleId ? `&vehicle_id=${vehicleId}` : ''}`).then(r => r.data),
   accept: (fid: number, txIds: number[]) => api.post<{ added: number }>(`${fam(fid)}/auto/suggestions/accept`, { transaction_ids: txIds }).then(r => r.data),
   hints: (fid: number, id: number) => api.get<Hints>(`${fam(fid)}/vehicles/${id}/hints`).then(r => r.data),
+  docs: (fid: number, vid: number) => api.get<VDoc[]>(`${fam(fid)}/vehicles/${vid}/documents`).then(r => r.data),
+  createDoc: (fid: number, body: object) => api.post<VDoc>(`${fam(fid)}/vehicle-documents`, body).then(r => r.data),
+  updateDoc: (fid: number, id: number, body: object) => api.put<VDoc>(`${fam(fid)}/vehicle-documents/${id}`, body).then(r => r.data),
+  deleteDoc: (fid: number, id: number) => api.delete(`${fam(fid)}/vehicle-documents/${id}`).then(r => r.data),
+  uploadFile: async (fid: number, id: number, file: File) => api.put<VDoc>(`${fam(fid)}/vehicle-documents/${id}/file?name=${encodeURIComponent(file.name)}`,
+    await file.arrayBuffer(), { headers: { 'Content-Type': file.type || 'application/pdf' } }).then(r => r.data),
+  deleteFile: (fid: number, id: number) => api.delete<VDoc>(`${fam(fid)}/vehicle-documents/${id}/file`).then(r => r.data),
+  fileUrl: (fid: number, id: number) => api.get<{ path: string }>(`${fam(fid)}/vehicle-documents/${id}/file-link`)
+    .then(r => `${api.defaults.baseURL}${r.data.path}`),
   ignore: (fid: number, txId: number) => api.post(`${fam(fid)}/auto/ignore`, { transaction_id: txId }).then(r => r.data),
   importHistory: (fid: number, id: number) => api.post<{ linked: number; skipped: TxBrief[] }>(`${fam(fid)}/vehicles/${id}/import`).then(r => r.data),
 };
