@@ -144,3 +144,17 @@ def test_ai_export_has_plan_sections_and_ops(seeded, db):
         assert s in t
     assert f"{today};Admin;витрата;1414;UAH;Продукти;" in t and "Фора, акція" in t  # «;» in titles can't break the CSV
     assert f"{today};Admin;повернення;249;" in t
+
+
+def test_balancing_is_not_spending(seeded, db):
+    from app import models
+    fam, u = seeded["family"], seeded["admin"]
+    bal = models.Category(family_id=fam.id, icon="⚖️", color="#000", name="Балансування", type="expense")
+    db.add(bal); db.commit()
+    today = date.today()
+    make_tx(db, fam.id, u.id, bal.id, 2473, "Витрати", title="Балансування готівки", date=today)
+    a = A.month_analytics(db, fam.id, today.replace(day=1), today=today)
+    assert a["expense"] == 0
+    st = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()
+    assert st["expense"] == 0
+    assert next(c for c in st["cash_by_user"] if c["user_id"] == u.id)["balance"] == -2473  # cash still corrected

@@ -3,7 +3,7 @@
 Rules (same as the Home stats): expenses = type «Витрати», incomes = «Поповнення» (or
 «Дохід…»); jar operations and transfers are internal movements and never counted.
 A refund (↩️ money back for a purchase) is not income: it lowers the expense of its category.
-Transfers between family members (category «Переказ») are internal too.
+Transfers between family members (category «Переказ») and cash corrections («Балансування») are internal too.
 Category breakdown, budgets and trends are in UAH; other currencies only as totals.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app import models
-from app.crud import is_family_transfer
+from app.crud import is_balancing, is_family_transfer
 from app.services.housing import add_months, month_end, month_start, today_kyiv
 
 UAH = "UAH"
@@ -42,7 +42,7 @@ def spent(t) -> float:
 
 
 def _counted(t) -> bool:
-    return t.jar_id is None and t.type != "Переказ" and not is_family_transfer(t)
+    return t.jar_id is None and t.type != "Переказ" and not is_family_transfer(t) and not is_balancing(t)
 
 
 def _txs(db: Session, fid: int, start: date, end: date):
