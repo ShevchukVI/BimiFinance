@@ -128,3 +128,19 @@ def test_work_owed_counts_costs_fees_and_reimbursements(seeded, db):
     db.commit()
     w = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()["work"]
     assert w == {"payer": "Прего", "owed": -473 + 2384 + 690 - 1000}
+
+
+def test_ai_export_has_plan_sections_and_ops(seeded, db):
+    fam, u, c = seeded["family"], seeded["admin"], seeded["cats"]
+    today = date.today()
+    make_tx(db, fam.id, u.id, c["Продукти"].id, 1414, "Витрати", title="❓ Фора; акція", date=today)
+    back = make_tx(db, fam.id, u.id, c["Продукти"].id, 249, "Поповнення", title="Від: друг", date=today)
+    back.refund = True
+    db.commit()
+    r = client.post(f"/families/{fam.id}/export/ai?send=false", headers=_hdr(fam.id)).json()
+    assert r["sent"] is False and r["filename"].endswith(".md")
+    t = r["text"]
+    for s in ("## Гроші зараз", "## Кредити", "## Помісячно", "## Витрати по категоріях", "## Усі операції"):
+        assert s in t
+    assert f"{today};Admin;витрата;1414;UAH;Продукти;" in t and "Фора, акція" in t  # «;» in titles can't break the CSV
+    assert f"{today};Admin;повернення;249;" in t

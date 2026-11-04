@@ -31,6 +31,16 @@ export default function MorePage(props: {
 }) {
   const [screen, setScreen] = useState<Screen>(props.initialScreen || null);
   const back = () => setScreen(null);
+  const [exporting, setExporting] = useState(false);
+  const exportAi = async () => {
+    setExporting(true);
+    try {
+      const r = (await api.post(`/families/${props.familyId}/export/ai`)).data;
+      if (r.sent) toast('Файл у чаті з ботом — перешли його Claude');
+      else { props.copyToClipboard(r.text); toast('Скопіював текст — встав його в чат з Claude'); }
+    } catch { toast('Не вдалося зібрати дані', 'err'); }
+    setExporting(false);
+  };
 
   if (screen === 'jars') return <div className="page"><SubScreen title="Цілі" onBack={back}>
     <JarsPage jars={props.jars} familyId={props.familyId} onTopUp={props.onJarTopUp} onCreate={props.onJarCreate} onSync={props.onJarsSync} syncing={props.jarsSyncing} /></SubScreen></div>;
@@ -56,6 +66,7 @@ export default function MorePage(props: {
       <Card flush>
         {item('👨‍👩‍👧', "Сім'я", `${props.familyName} · ${props.familyUsers.length} учасн.`, () => setScreen('family'))}
         {item('🏦', 'Monobank', props.hasMonoToken ? <span className="pos">Підключено</span> : 'Не підключено', () => setScreen('mono'))}
+        {item('🤖', 'Дані для ШІ', exporting ? 'Збираю…' : 'Файл для планування бюджету в чаті з Claude', () => { if (!exporting) exportAi(); })}
         <Row icon="📤" title="Експорт в Excel" sub="Скоро" />
       </Card>
       <Section title="Нижнє меню">
