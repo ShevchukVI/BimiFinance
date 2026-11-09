@@ -413,7 +413,12 @@ def get_family_stats(db: Session, family_id: int):
             "work": get_work_owed(db, family_id)}
 
 
-def get_work_owed(db: Session, family_id: int):
+def _work_delta(t) -> float:
+    """How a «Робочі витрати» op moves the employer's debt: our expense +, their ↩️ reimbursement −."""
+    return -t.amount if t.refund else t.amount if t.type == TYPE_EXPENSE else 0
+
+
+def get_work_owed(db: Session, family_id: int, with_txs: bool = False):
     """«Прего винне»: opening + work expenses since work_since − their reimbursements (↩️ refunds).
     A fee for our own work is an income + a «Робочі витрати» expense of the same amount (cash nets to 0)."""
     fam = db.get(models.Family, family_id)
@@ -421,10 +426,22 @@ def get_work_owed(db: Session, family_id: int):
         return None
     txs = (db.query(models.Transaction).join(models.Category)
            .filter(models.Transaction.family_id == family_id, models.Transaction.date >= fam.work_since,
-                   models.Category.name.contains("Робоч")).all())
-    owed = (fam.work_opening or 0) + sum(-t.amount if t.refund else t.amount if t.type == TYPE_EXPENSE else 0
-                                         for t in txs if not _is_jar_tx(t))
-    return {"payer": fam.work_payer, "owed": round(owed, 2)}
+                   models.Category.name.contains("Робоч"))
+           .order_by(models.Transaction.date.desc(), models.Transaction.id.desc()).all())
+    txs = [t for t in txs if not _is_jar_tx(t) and _work_delta(t)]
+    out = {"payer": fam.work_payer, "owed": round((fam.work_opening or 0) + sum(map(_work_delta, txs)), 2)}
+    if with_txs:
+        out.update(since=fam.work_since, opening=fam.work_opening or 0, transactions=txs)
+    return out
+
+
+def set_work_owed(db: Session, family_id: int, owed: float):
+    """Correct «винне» to what it really is now: the difference goes into the opening balance,
+    so every op stays as it is and new ones keep counting from the corrected amount."""
+    cur = get_work_owed(db, family_id)
+    fam = db.get(models.Family, family_id)
+    fam.work_opening = round((fam.work_opening or 0) + owed - cur["owed"], 2)
+    db.commit()
 
 
 def _cash_delta(t_type: str, amt: float, is_jar: bool) -> float:

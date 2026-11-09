@@ -155,6 +155,19 @@ class TransactionOut(BaseModel):
         return data
 
 
+class WorkOut(BaseModel):
+    """«<payer> винне» with what it is made of (− owed = their money left with us)."""
+    payer: str
+    owed: float
+    since: date
+    opening: float
+    transactions: List[TransactionOut]
+
+
+class WorkOwedIn(BaseModel):
+    owed: float
+
+
 class BankAccountOut(BaseModel):
     """Банківський рахунок з балансом (для Mini App Home)."""
     name: str

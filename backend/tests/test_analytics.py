@@ -128,6 +128,11 @@ def test_work_owed_counts_costs_fees_and_reimbursements(seeded, db):
     db.commit()
     w = client.get(f"/families/{fam.id}/stats", headers=_hdr(fam.id)).json()["work"]
     assert w == {"payer": "Прего", "owed": -473 + 2384 + 690 - 1000}
+    d = client.get(f"/families/{fam.id}/work", headers=_hdr(fam.id)).json()
+    assert d["owed"] == 1601 and d["opening"] == -473 and [t["title"] for t in d["transactions"]].count("before") == 0
+    assert len(d["transactions"]) == 3
+    d = client.put(f"/families/{fam.id}/work", headers=_hdr(fam.id), json={"owed": 1500}).json()
+    assert d["owed"] == 1500 and d["opening"] == -574 and len(d["transactions"]) == 3
 
 
 def test_ai_export_has_plan_sections_and_ops(seeded, db):

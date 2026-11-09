@@ -20,6 +20,7 @@ import { anApi, Budgets, BudgetRow } from './analytics/api';
 import EnvelopeSheet from './analytics/EnvelopeSheet';
 import BudgetsSheet from './analytics/BudgetsSheet';
 import JarHistoryModal from './components/JarHistoryModal';
+import WorkSheet from './components/WorkSheet';
 import HousingPage, { HousingAction } from './housing/HousingPage';
 import { housingApi } from './housing/api';
 import type { Overview } from './housing/types';
@@ -54,6 +55,7 @@ export default function App() {
   const [envelope, setEnvelope] = useState<BudgetRow | null>(null);
   const [editBudgets, setEditBudgets] = useState(false);
   const [historyJar, setHistoryJar] = useState<Jar | null>(null);
+  const [workOpen, setWorkOpen] = useState(false);
   const [jarsSyncing, setJarsSyncing] = useState(false);
   const [linkTx, setLinkTx] = useState<Transaction | null>(null);
   const [paymentsDraft, setPaymentsDraft] = useState<ObDraft | null>(null);
@@ -297,7 +299,7 @@ export default function App() {
           onOpenInbox={() => setIsInboxOpen(true)} onSeeAll={() => setActiveTab('transactions')}
           onAdd={t => setAddType(t || 'Витрати')} onView={setViewingTx}
           onHousing={() => setActiveTab('housing')} onReadings={() => { setHousingAction('readings'); setActiveTab('housing'); }}
-          onJar={j => (j.mono_jar_id ? setHistoryJar(j) : setTopupJar(j))} onJars={openJars} />
+          onJar={j => (j.mono_jar_id ? setHistoryJar(j) : setTopupJar(j))} onJars={openJars} onWork={() => setWorkOpen(true)} />
       )}
       {activeTab === 'transactions' && (
         <TransactionsPage transactions={transactions} categories={categories} hasMore={hasMore}
@@ -344,6 +346,7 @@ export default function App() {
       {envelope && familyId && budgets && <EnvelopeSheet familyId={familyId} env={envelope} categories={categories} daysLeft={budgets.days_left}
         onClose={() => setEnvelope(null)} onView={setViewingTx} onEdit={() => { setEnvelope(null); setEditBudgets(true); }} />}
       {editBudgets && familyId && <BudgetsSheet familyId={familyId} categories={categories} budgets={budgets} onClose={() => setEditBudgets(false)} onSaved={setBudgets} />}
+      {workOpen && familyId && <WorkSheet familyId={familyId} categories={categories} onClose={() => setWorkOpen(false)} onView={setViewingTx} onChanged={refreshStats} />}
       {historyJar && familyId && <JarHistoryModal jar={historyJar} familyId={familyId} onClose={() => setHistoryJar(null)} />}
       {topupJar && <TopUpJarModal jar={topupJar} onClose={() => setTopupJar(null)} onToppedUp={onJarTopUp} />}
       {isInboxOpen && familyId && <InboxModal familyId={familyId} categories={categories} onClose={() => { setIsInboxOpen(false); api.get(`/families/${familyId}/inbox/suggestions`).then(r => setSmartSure(r.data.sure || 0)).catch(() => { /**/ }); }} onCategorized={handleCategorized}

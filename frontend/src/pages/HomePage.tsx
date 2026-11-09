@@ -13,12 +13,12 @@ const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function HomePage({
   stats, transactions, categories, bankBalances, jars, housing, auto, upcoming, budgets,
-  onAuto, onAnalytics, onMono, hasBank, smartSure, onOpenInbox, onUpcoming, onBudgets, onEnvelope, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars,
+  onAuto, onAnalytics, onMono, hasBank, smartSure, onOpenInbox, onUpcoming, onBudgets, onEnvelope, onSeeAll, onAdd, onView, onHousing, onReadings, onJar, onJars, onWork,
 }: {
   stats: Stats | null; transactions: Transaction[]; categories: Category[]; bankBalances: BankUserBalances[];
   jars: Jar[]; housing: Overview | null; auto: AutoOverview | null; onAuto: () => void; upcoming: Upcoming[]; budgets: Budgets | null;
   onOpenInbox: () => void; onUpcoming: (u: Upcoming | null) => void; onBudgets: () => void; onEnvelope: (b: BudgetRow) => void; onSeeAll: () => void; onAdd: (type?: 'Витрати' | 'Поповнення') => void;
-  onView: (tx: Transaction) => void; onHousing: () => void; onReadings: () => void; onJar: (j: Jar) => void; onJars: () => void;
+  onView: (tx: Transaction) => void; onHousing: () => void; onReadings: () => void; onJar: (j: Jar) => void; onJars: () => void; onWork: () => void;
   onAnalytics: () => void; onMono: () => void; hasBank: boolean; smartSure: number;
 }) {
   const [allEnv, setAllEnv] = useState(false);
@@ -96,11 +96,11 @@ export default function HomePage({
             </button>
           )}
           {stats?.work && (
-            <div className="money-row">
+            <button className="money-row" onClick={onWork}>
               <span className="money-row__icon">💼</span>
               <span className="money-row__body"><span className="money-row__title">{stats.work.payer} винне</span><span className="money-row__sub">{stats.work.owed < 0 ? `їхній запас у вас ${money(-stats.work.owed, 'UAH', 0)}` : 'хостинги й послуги · поза сумою'}</span></span>
               <b className="tnum">{money(Math.max(0, stats.work.owed), 'UAH', 0)}</b>
-            </div>
+            </button>
           )}
           {!hasBank && (
             <button className="money-row" onClick={onMono}>

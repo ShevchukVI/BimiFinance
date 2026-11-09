@@ -102,3 +102,22 @@ def leave_family(family_id: int, actor: Actor = Depends(require_user),
     if err:
         raise HTTPException(status_code=400, detail=err)
     return member
+
+
+@router.get("/{family_id}/work", response_model=schemas.WorkOut)
+def get_work(family_id: int, _: None = Depends(require_family), db: Session = Depends(get_db)):
+    """«Прего винне»: opening balance + every work op that moves it."""
+    w = crud.get_work_owed(db, family_id, with_txs=True)
+    if not w:
+        raise HTTPException(status_code=404, detail="Робочий баланс не налаштовано")
+    return w
+
+
+@router.put("/{family_id}/work", response_model=schemas.WorkOut)
+def correct_work(family_id: int, payload: schemas.WorkOwedIn, _: None = Depends(require_family),
+                 db: Session = Depends(get_db)):
+    """«Виправити»: set what they really owe now (after reconciling with the employer)."""
+    if not crud.get_work_owed(db, family_id):
+        raise HTTPException(status_code=404, detail="Робочий баланс не налаштовано")
+    crud.set_work_owed(db, family_id, payload.owed)
+    return crud.get_work_owed(db, family_id, with_txs=True)
