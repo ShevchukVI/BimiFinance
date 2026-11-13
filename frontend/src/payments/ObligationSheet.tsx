@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { toast } from '../toast';
-import { day, dmy, money } from '../format';
+import { day, dmy, money, parseNum, todayIso } from '../format';
 import { confirmAsync, haptic } from '../tg';
 import type { Transaction } from '../types';
-import { Badge, Banner, Button, Card, Progress, Row, Sheet, Spinner, Tile } from '../ui';
+import { Badge, Banner, Button, Card, Field, Progress, Row, Segmented, Sheet, Spinner, Tile } from '../ui';
+import TxPicker from './TxPicker';
 import { errText } from '../housing/api';
 import { KIND_LABEL, Obligation, payApi } from './api';
 import { statusBadge, statusLine } from './PaymentsPage';
@@ -13,6 +14,9 @@ export default function ObligationSheet({ familyId, item, onClose, onEdit, onCha
 }) {
   const [txs, setTxs] = useState<Transaction[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [add, setAdd] = useState<'bank' | 'cash' | null>(null);
+  const [cash, setCash] = useState(String(item.amount));
+  const [cashDate, setCashDate] = useState(todayIso());
   const s = item.state;
   const credit = item.kind !== 'subscription';
   const load = () => payApi.transactions(familyId, item.id).then(setTxs).catch(e => toast(errText(e), 'err'));
@@ -31,9 +35,22 @@ export default function ObligationSheet({ familyId, item, onClose, onEdit, onCha
     catch (e) { toast(errText(e), 'err'); }
   };
 
+  const added = () => { setAdd(null); onChanged(); load(); };
+  const payCash = async () => {
+    const n = parseNum(cash);
+    if (!(n > 0) || busy) return;
+    setBusy(true);
+    try { await payApi.payCash(familyId, item.id, { amount: n, date: cashDate }); haptic('success'); toast(`Платіж ${money(n)} записано`); added(); }
+    catch (e) { toast(errText(e), 'err'); }
+    setBusy(false);
+  };
+
   return (
     <Sheet title={item.name} icon={item.icon} onClose={onClose}
-      footer={<Button variant="secondary" onClick={onEdit}>Налаштувати</Button>}>
+      footer={<div className="btn-row">
+        <Button variant="secondary" onClick={onEdit}>Налаштувати</Button>
+        {item.is_active && <Button onClick={() => setAdd(add ? null : 'bank')}>{add ? 'Сховати' : '➕ Платіж'}</Button>}
+      </div>}>
       <div className="muted small" style={{ marginTop: -8 }}>{KIND_LABEL[item.kind]} · {statusLine(item)}</div>
       {credit ? (
         <>
@@ -59,8 +76,22 @@ export default function ObligationSheet({ familyId, item, onClose, onEdit, onCha
           <div className="muted small">{item.suggested.slice(0, 3).map(t => `${day(t.date)} ${money(t.amount)}`).join(' · ')} — натисніть, щоб пов'язати</div>
         </Banner>
       )}
-      {s.status === 'overdue' && <Banner icon="💡" tone="warn">Якщо платіж уже був — відкрийте операцію в «Історії» і натисніть «Пов'язати», або вкажіть у налаштуваннях, скільки платежів сплачено поза Bimi.</Banner>}
-      {busy && <Spinner />}
+      {s.status === 'overdue' && <Banner icon="💡" tone="warn">Якщо платіж уже був — натисніть «➕ Платіж» і оберіть операцію (або «Готівкою»), чи вкажіть у налаштуваннях, скільки платежів сплачено поза Bimi.</Banner>}
+      {add && (
+        <Card>
+          <div className="stack-s">
+            <Segmented value={add} onChange={setAdd} options={[{ value: 'bank', label: '🔗 Обрати операцію' }, { value: 'cash', label: '💵 Готівкою' }]} />
+            {add === 'bank' ? <TxPicker familyId={familyId} type="obligation" id={item.id} onLinked={added} /> : <>
+              <div className="grid2">
+                <Field label="Сума"><input className="input tnum" inputMode="decimal" value={cash} onChange={e => setCash(e.target.value)} /></Field>
+                <Field label="Дата"><input className="input" type="date" value={cashDate} max={todayIso()} onChange={e => setCashDate(e.target.value)} /></Field>
+              </div>
+              <Button onClick={payCash} busy={busy} disabled={!(parseNum(cash) > 0)}>Записати · витрата з «Готівки»</Button>
+            </>}
+          </div>
+        </Card>
+      )}
+      {busy && !add && <Spinner />}
       {!item.match_pattern && <Banner icon="💡">Вкажіть у налаштуваннях «Як виглядає в банку» — тоді нові списання прив'язуватимуться самі.</Banner>}
       <div className="section-head"><span className="section-title">Платежі · {txs?.length ?? '…'}</span>{statusBadge(item)}</div>
       {txs === null ? <Spinner /> : txs.length === 0 ? <div className="muted small center">Ще немає пов'язаних операцій</div> : (

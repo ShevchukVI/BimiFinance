@@ -204,3 +204,33 @@ def test_bill_edit_updates_its_reading(seeded):
     client.put(f"/housing/families/{fam.id}/bills/{b['id']}", headers=_hdr(fam.id), json=body)
     hist = client.get(f"/housing/families/{fam.id}/meters/{gas}/readings", headers=_hdr(fam.id)).json()
     assert [h["value"] for h in hist if h["date"] == "2026-09-01"] == [150]
+
+
+def test_link_candidates_picker_from_service_adopts_manual_payment(seeded, db):
+    fam, admin, cats = seeded["family"], seeded["admin"], seeded["cats"]
+    client.post(f"/housing/families/{fam.id}/setup", headers=_hdr(fam.id), json={"mode": "own", "templates": ["electricity"]})
+    prov = db.query(models.UtilityProvider).filter_by(family_id=fam.id, service="electricity").first()
+    client.put(f"/housing/families/{fam.id}/providers/{prov.id}", headers=_hdr(fam.id), json={"fixed_amount": 15000})
+    rent = make_tx(db, fam.id, admin.id, cats["Інше"].id, 15000, "Витрати", title="Переказ на картку Олена К.")
+    other = make_tx(db, fam.id, admin.id, cats["Інше"].id, 120, "Витрати", title="Кава")
+    # a cash-style payment entered by hand two days ago, same amount
+    client.post(f"/housing/families/{fam.id}/payments", headers=_hdr(fam.id), json={
+        "provider_id": prov.id, "amount": 15000, "date": str(rent.date - timedelta(days=2)), "create_transaction": False})
+    url = f"/families/{fam.id}/link-candidates?type=provider&id={prov.id}"
+    items = client.get(url, headers=_hdr(fam.id)).json()
+    assert [i["id"] for i in items][:2] == [rent.id, other.id] and items[0]["match"] and not items[1]["match"]
+    assert [i["id"] for i in client.get(url + "&q=кав", headers=_hdr(fam.id)).json()] == [other.id]
+    client.post(f"/families/{fam.id}/transactions/{rent.id}/link", headers=_hdr(fam.id), json={"type": "provider", "id": prov.id})
+    pays = client.get(f"/housing/families/{fam.id}/payments", headers=_hdr(fam.id)).json()
+    assert len(pays) == 1 and pays[0]["transaction_id"] == rent.id and pays[0]["date"] == str(rent.date)
+    assert rent.id not in [i["id"] for i in client.get(url, headers=_hdr(fam.id)).json()]
+
+
+def test_obligation_cash_payment_creates_linked_expense(seeded, db):
+    fam = seeded["family"]
+    ob = client.post(f"/families/{fam.id}/obligations", headers=_hdr(fam.id), json={
+        "kind": "loan", "name": "Кредит Петрові", "amount": 1000, "payments_total": 5}).json()
+    r = client.post(f"/families/{fam.id}/obligations/{ob['id']}/payments", headers=_hdr(fam.id), json={"amount": 1000})
+    assert r.status_code == 200
+    txs = client.get(f"/families/{fam.id}/obligations/{ob['id']}/transactions", headers=_hdr(fam.id)).json()
+    assert len(txs) == 1 and txs[0]["account"] == "Готівка" and txs[0]["type"] == "Витрати"

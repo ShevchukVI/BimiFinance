@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { toast } from '../toast';
 import { money, parseNum, todayIso } from '../format';
 import { haptic } from '../tg';
-import { Button, Chips, Field, Sheet, Switch } from '../ui';
+import { Button, Chips, Field, Segmented, Sheet, Switch } from '../ui';
+import TxPicker from '../payments/TxPicker';
 import { errText, housingApi } from './api';
 import type { Overview } from './types';
 import { isFixedService } from './types';
@@ -25,12 +26,17 @@ export default function PaymentSheet({ familyId, overview, providerId, accounts,
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState('');
   const [withTx, setWithTx] = useState(true);
-  const [account, setAccount] = useState(accounts[0] || 'Готівка');
+  const [account, setAccount] = useState(accounts.includes('Готівка') ? 'Готівка' : accounts[0] || 'Готівка');
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<'bank' | 'manual'>('bank');
   const p = providers.find(x => x.id === pid);
   const num = parseNum(amount);
   const valid = !!pid && Number.isFinite(num) && num > 0;
 
+  const linked = async () => {  // operation picked from the bank list → it is the payment (its date & amount)
+    try { onSaved(await housingApi.overview(familyId), true); } catch { /* list refreshes on next open */ }
+    onClose();
+  };
   const save = async () => {
     if (!valid) return;
     setBusy(true);
@@ -52,10 +58,13 @@ export default function PaymentSheet({ familyId, overview, providerId, accounts,
 
   return (
     <Sheet title="Оплата" icon="💳" onClose={onClose}
-      footer={<Button onClick={save} disabled={!valid} busy={busy}>Записати оплату{valid ? ` · ${money(num)}` : ''}</Button>}>
+      footer={mode === 'bank' ? undefined : <Button onClick={save} disabled={!valid} busy={busy}>Записати оплату{valid ? ` · ${money(num)}` : ''}</Button>}>
       <Field label="За що">
         <Chips value={pid} onChange={id => { setPid(id); setAmount(suggested(id)); }} options={providers.map(x => ({ value: x.id, label: `${x.icon} ${x.name}` }))} />
       </Field>
+      <Segmented value={mode} onChange={setMode} options={[{ value: 'bank', label: '🔗 Обрати операцію' }, { value: 'manual', label: '💵 Готівкою / вручну' }]} />
+      {mode === 'bank' ? (pid ? <TxPicker familyId={familyId} type="provider" id={pid} onLinked={linked} />
+        : <div className="muted small center">Оберіть, за що оплата</div>) : <>
       <input className="input input--big tnum" inputMode="decimal" placeholder="0 ₴" value={amount} onChange={e => setAmount(e.target.value)} aria-label="Сума" />
       {hints.length > 0 && <Chips small value={null} onChange={v => setAmount(String(v))} options={hints.map(h => ({ value: h.v, label: h.label }))} />}
       {p?.pay_url && <a className="link" href={p.pay_url} target="_blank" rel="noreferrer">Відкрити оплату {p.name} ↗</a>}
@@ -74,6 +83,7 @@ export default function PaymentSheet({ familyId, overview, providerId, accounts,
           </div>
         )}
       </div>
+      </>}
     </Sheet>
   );
 }

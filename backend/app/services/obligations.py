@@ -189,9 +189,17 @@ def link_obligation(db: Session, tx, ob) -> None:
 
 
 def link_provider(db: Session, tx, provider, note: str = "") -> models.UtilityPayment:
-    pay = models.UtilityPayment(family_id=tx.family_id, provider_id=provider.id, date=tx.date, amount=tx.amount,
-                                user_id=tx.user_id, note=note, transaction_id=tx.id)
-    db.add(pay)
+    # a payment entered by hand earlier (same amount ±1 ₴, ±3 days, no operation yet) becomes this operation
+    pay = db.query(models.UtilityPayment).filter(
+        models.UtilityPayment.provider_id == provider.id, models.UtilityPayment.transaction_id.is_(None),
+        models.UtilityPayment.date.between(tx.date - timedelta(days=3), tx.date + timedelta(days=3)),
+        models.UtilityPayment.amount.between(tx.amount - 1, tx.amount + 1)).first()
+    if pay:
+        pay.transaction_id, pay.date, pay.amount = tx.id, tx.date, tx.amount
+    else:
+        pay = models.UtilityPayment(family_id=tx.family_id, provider_id=provider.id, date=tx.date, amount=tx.amount,
+                                    user_id=tx.user_id, note=note, transaction_id=tx.id)
+        db.add(pay)
     if _is_pending(db, tx):
         cat = housing_category(db, tx.family_id, provider.service)
         if cat:

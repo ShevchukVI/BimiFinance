@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import models, schemas
-from app.core.deps import require_family
+from app import crud, models, schemas
+from app.core.deps import Actor, get_actor, require_family
 from app.database import get_db
 from app.services import housing as H
 from app.services import obligations as O
@@ -40,6 +40,12 @@ class ObligationIn(BaseModel):
     is_active: Optional[bool] = None
     note: Optional[str] = None
     link_suggested: bool = False  # link matching past transactions right away
+
+
+class CashIn(BaseModel):
+    amount: float
+    date: Optional[str] = None
+    account: str = "Готівка"
 
 
 class LinkIn(BaseModel):
@@ -204,6 +210,24 @@ def link_suggested(family_id: int, obligation_id: int, _: None = Depends(require
     return {"linked": len(txs), "item": ob_out(o, _linked_by_ob(db, family_id).get(o.id, []))}
 
 
+@router.post("/families/{family_id}/obligations/{obligation_id}/payments")
+def pay_obligation(family_id: int, obligation_id: int, payload: CashIn, actor: Actor = Depends(get_actor),
+                   _: None = Depends(require_family), db: Session = Depends(get_db)):
+    """Payment that is not in the bank (cash): a new expense already linked to the obligation."""
+    from app.api.housing import _actor_user_id
+    o = _ob(db, family_id, obligation_id)
+    uid = _actor_user_id(db, actor, family_id)
+    if payload.amount <= 0 or not uid:
+        raise HTTPException(400, "Вкажіть суму")
+    cat = o.category_id or O.housing_category(db, family_id, "mortgage")  # «Кредит…» if the family has it
+    tx = crud.create_transaction(db, family_id, uid, cat, payload.amount, crud.TYPE_EXPENSE,
+                                 f"{o.icon or O.KIND_ICON.get(o.kind, '')} {o.name}".strip(), "",
+                                 payload.account, _d(payload.date) or H.today_kyiv())
+    tx.obligation_id = o.id
+    db.commit()
+    return _tx_brief(tx)
+
+
 # ---------------------------------------------------------------- transaction ↔ obligation / housing service
 
 def _current_link(db: Session, tx) -> Optional[dict]:
@@ -293,6 +317,43 @@ def delete_link(family_id: int, tx_id: int, _: None = Depends(require_family), d
     was = O.unlink(db, tx)
     db.commit()
     return was
+
+
+@router.get("/families/{family_id}/link-candidates")
+def link_candidates(family_id: int, type: str, id: int, q: str = "", days: int = Query(120, ge=7, le=730),
+                    _: None = Depends(require_family), db: Session = Depends(get_db)):
+    """Picker «обрати операцію» from a housing service / obligation: recent expenses not linked to anything,
+    likely ones first (bank pattern, amount ≈ expected)."""
+    if type == "obligation":
+        t = _ob(db, family_id, id)
+        expected = t.amount
+    elif type == "provider":
+        t = db.query(models.UtilityProvider).filter(models.UtilityProvider.id == id,
+                                                    models.UtilityProvider.family_id == family_id).first()
+        if not t:
+            raise HTTPException(404, "Послугу не знайдено")
+        last = (db.query(models.UtilityPayment.amount).filter(models.UtilityPayment.provider_id == t.id)
+                .order_by(models.UtilityPayment.date.desc()).first())
+        expected = t.fixed_amount or (last[0] if last else None)
+    else:
+        raise HTTPException(400, "Невірний тип")
+    used = O.linked_tx_ids(db, family_id) | {r[0] for r in db.query(models.VehicleLog.transaction_id).filter(
+        models.VehicleLog.family_id == family_id, models.VehicleLog.transaction_id.isnot(None))}
+    qs = (db.query(models.Transaction).filter(models.Transaction.family_id == family_id,
+                                              models.Transaction.type == "Витрати",
+                                              models.Transaction.obligation_id.is_(None),
+                                              models.Transaction.jar_id.is_(None),
+                                              models.Transaction.date >= H.today_kyiv() - timedelta(days=days)))
+    needle = q.strip().casefold()  # in Python: SQL ILIKE is ASCII-only on SQLite
+    items = []
+    for tx in qs.order_by(models.Transaction.date.desc(), models.Transaction.id.desc()).limit(1000):
+        if tx.id in used or needle not in tx.title.casefold():
+            continue
+        score = (60 if O.text_matches(t.match_pattern, tx.title) else 0) + \
+                (30 if expected and abs(tx.amount - expected) <= max(expected * 0.005, 1) else 0)
+        items.append({**_tx_brief(tx), "user_name": tx.user.name if tx.user else None, "match": score > 0, "score": score})
+    items.sort(key=lambda x: -x["score"])  # stable: newest first inside each score
+    return items[:80]
 
 
 @router.get("/families/{family_id}/link-suggestions")

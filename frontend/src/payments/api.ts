@@ -5,6 +5,7 @@ export type ObKind = 'installment' | 'loan' | 'subscription';
 export type ObStatus = 'upcoming' | 'due_soon' | 'overdue' | 'finished' | 'charged' | 'missing' | 'stale';
 
 export interface TxBrief { id: number; date: string; amount: number; title: string; account: string; }
+export interface PickTx extends TxBrief { user_name: string | null; match: boolean; }
 
 export interface Obligation {
   id: number; kind: ObKind; name: string; icon: string; amount: number; currency: string; period: 'month' | 'year';
@@ -36,6 +37,8 @@ export const payApi = {
   link: (fid: number, txId: number) => api.get<{ current: LinkTarget | null; candidates: LinkTarget[] }>(`/families/${fid}/transactions/${txId}/link`).then(r => r.data),
   setLink: (fid: number, txId: number, type: string, id: number) =>
     api.post<{ current: LinkTarget; transaction: Transaction }>(`/families/${fid}/transactions/${txId}/link`, { type, id }).then(r => r.data),
+  candidates: (fid: number, type: string, id: number) => api.get<PickTx[]>(`/families/${fid}/link-candidates?type=${type}&id=${id}`).then(r => r.data),
+  payCash: (fid: number, id: number, body: { amount: number; date: string; account?: string }) => api.post<TxBrief>(`/families/${fid}/obligations/${id}/payments`, body).then(r => r.data),
   unlink: (fid: number, txId: number) => api.delete(`/families/${fid}/transactions/${txId}/link`).then(r => r.data),
   looseHousing: (fid: number) => api.get<{ providers: Record<string, TxBrief[]>; unassigned: TxBrief[] }>(`/families/${fid}/link-suggestions`).then(r => r.data),
 };
