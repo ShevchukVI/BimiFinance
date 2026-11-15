@@ -201,6 +201,9 @@ class JarOut(BaseModel):
     user_id: Optional[int] = None
     synced_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
+class JarUpdate(BaseModel):
+    name: Optional[str] = None
+    goal: Optional[float] = None
 class JarTopUp(BaseModel):
     amount: float
 class CategoryStat(BaseModel):

@@ -17,7 +17,7 @@ export default function MorePage(props: {
   me: { id: number; name: string; role: string | null };
   families: FamilyMembership[]; familyId: number; familyName: string; inviteCode: string;
   familyUsers: FamilyUser[]; hasMonoToken: boolean;
-  jars: Jar[]; onJarTopUp: (j: Jar) => void; onJarCreate: () => void; onJarsSync?: () => void; jarsSyncing?: boolean;
+  jars: Jar[]; onJarTopUp: (j: Jar) => void; onJarCreate: () => void; onJarsChanged: () => void; onJarsSync?: () => void; jarsSyncing?: boolean;
   noteText: string; setNoteText: (s: string) => void; onNoteBlur: () => void; onNoteClear: () => void;
   splitBy: number; setSplitBy: (n: number) => void;
   housingEnabled: boolean; onHousingSettings: () => void;
@@ -43,7 +43,7 @@ export default function MorePage(props: {
   };
 
   if (screen === 'jars') return <div className="page"><SubScreen title="Цілі" onBack={back}>
-    <JarsPage jars={props.jars} familyId={props.familyId} onTopUp={props.onJarTopUp} onCreate={props.onJarCreate} onSync={props.onJarsSync} syncing={props.jarsSyncing} /></SubScreen></div>;
+    <JarsPage jars={props.jars} familyId={props.familyId} onTopUp={props.onJarTopUp} onCreate={props.onJarCreate} onSync={props.onJarsSync} syncing={props.jarsSyncing} onChanged={props.onJarsChanged} /></SubScreen></div>;
   if (screen === 'payments') return <div className="page"><SubScreen title="Кредити й підписки" onBack={back}>
     <PaymentsPage familyId={props.familyId} categories={props.categories} initialDraft={props.paymentsDraft} onChanged={props.onPaymentsChanged} /></SubScreen></div>;
   if (screen === 'notes') return <div className="page"><SubScreen title="Чернетка" onBack={back}>

@@ -98,6 +98,7 @@ def run_migrations():
             "ALTER TABLE families ADD COLUMN IF NOT EXISTS work_payer VARCHAR",
             "ALTER TABLE families ADD COLUMN IF NOT EXISTS work_since DATE",
             "ALTER TABLE families ADD COLUMN IF NOT EXISTS work_opening DOUBLE PRECISION NOT NULL DEFAULT 0",
+            "ALTER TABLE jars ADD COLUMN IF NOT EXISTS hidden BOOLEAN NOT NULL DEFAULT FALSE",
             "UPDATE vehicles SET driver_ids = CAST(user_id AS VARCHAR) WHERE driver_ids IS NULL AND user_id IS NOT NULL",
         ):
             conn.execute(text(stmt))

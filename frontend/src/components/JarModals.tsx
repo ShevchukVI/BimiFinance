@@ -3,7 +3,7 @@ import api from '../api';
 import { toast } from '../toast';
 import { Jar } from '../types';
 import { money, parseNum } from '../format';
-import { haptic } from '../tg';
+import { confirmAsync, haptic } from '../tg';
 import { Button, Chips, Field, Sheet } from '../ui';
 
 export function CreateJarModal({ familyId, onClose, onCreated }: {
@@ -73,6 +73,49 @@ export function TopUpJarModal({ jar, onClose, onToppedUp }: {
         Зараз {money(jar.balance, jar.currency)} з {money(jar.goal, jar.currency)}
         {mode === 'topup' && left > 0 && <> · до цілі {money(left, jar.currency)} <button className="link" onClick={() => setAmount(String(left))}>закинути все</button></>}
       </div>
+    </Sheet>
+  );
+}
+
+// Змінити назву / суму цілі або прибрати її. Банку Monobank перейменовують у банку; з історією — ховається, а не стирається.
+export function EditJarModal({ jar, onClose, onChanged }: { jar: Jar; onClose: () => void; onChanged: () => void }) {
+  const [name, setName] = useState(jar.name);
+  const [goal, setGoal] = useState(String(jar.goal || ''));
+  const [busy, setBusy] = useState(false);
+  const g = goal.trim() ? parseNum(goal) : 0;
+  const valid = name.trim() && Number.isFinite(g) && g >= 0;
+  const err = (e: unknown, fallback: string) => toast((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback, 'err');
+
+  const save = async () => {
+    if (!valid) return;
+    setBusy(true);
+    try {
+      await api.put(`/jars/${jar.id}`, jar.mono_jar_id ? { goal: g } : { name: name.trim(), goal: g });
+      haptic('success'); toast('Збережено'); onChanged(); onClose();
+    } catch (e) { err(e, 'Не вдалося зберегти'); }
+    setBusy(false);
+  };
+  const remove = async () => {
+    if (!(await confirmAsync(`Видалити ціль «${jar.name}»?`))) return;
+    setBusy(true);
+    try {
+      const r = await api.delete(`/jars/${jar.id}`);
+      haptic('success'); toast(r.data.archived ? 'Ціль прибрано (історія лишилась)' : 'Ціль видалено'); onChanged(); onClose();
+    } catch (e) { err(e, 'Не вдалося видалити'); }
+    setBusy(false);
+  };
+
+  return (
+    <Sheet title="Ціль" icon="✏️" onClose={onClose}
+      footer={<div className="btn-row">
+        <Button variant="danger" onClick={remove} disabled={busy}>Видалити</Button>
+        <Button onClick={save} disabled={!valid} busy={busy}>Зберегти</Button>
+      </div>}>
+      <Field label="Назва" hint={jar.mono_jar_id ? 'Назву банки змінюйте в Monobank' : undefined}>
+        <input className="input" value={name} disabled={!!jar.mono_jar_id} onChange={e => setName(e.target.value)} />
+      </Field>
+      <Field label="Скільки потрібно" hint="0 — без суми цілі"><input className="input tnum" inputMode="decimal" placeholder="0 ₴" value={goal} onChange={e => setGoal(e.target.value)} /></Field>
+      {Math.abs(jar.balance) >= 0.01 && <div className="muted small">Щоб видалити, спершу зніміть {money(jar.balance, jar.currency)}{jar.mono_jar_id ? ' у Monobank' : ''}.</div>}
     </Sheet>
   );
 }

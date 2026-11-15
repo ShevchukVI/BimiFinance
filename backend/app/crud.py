@@ -613,7 +613,8 @@ def get_jar_balance(db: Session, jar_id: int, currency: str = None) -> float:
 
 
 def get_jars(db: Session, family_id: int):
-    jars = db.query(models.Jar).filter(models.Jar.family_id == family_id).order_by(models.Jar.id).all()
+    jars = (db.query(models.Jar).filter(models.Jar.family_id == family_id, models.Jar.hidden.is_(False))
+            .order_by(models.Jar.id).all())
     result = []
     for j in jars:
         # Monobank jar: the bank knows the real balance (incl. money moved before Bimi)

@@ -321,7 +321,7 @@ export default function App() {
           me={{ id: me.id, name: me.name, role: me.role || 'member' }}
           families={families} familyId={familyId} familyName={familyName} inviteCode={inviteCode}
           familyUsers={familyUsers} hasMonoToken={me.has_mono_token}
-          jars={jars} onJarTopUp={setTopupJar} onJarCreate={() => setIsJarModalOpen(true)} onJarsSync={bankBalances.length ? syncJars : undefined} jarsSyncing={jarsSyncing}
+          jars={jars} onJarTopUp={setTopupJar} onJarCreate={() => setIsJarModalOpen(true)} onJarsChanged={() => { if (familyId) api.get(`/families/${familyId}/jars`).then(r => setJars(r.data)).catch(() => { /**/ }); refreshStats(); }} onJarsSync={bankBalances.length ? syncJars : undefined} jarsSyncing={jarsSyncing}
           noteText={noteText} setNoteText={setNoteText} onNoteBlur={saveNote} onNoteClear={clearNote}
           splitBy={splitBy} setSplitBy={setSplitBy}
           housingEnabled={!housingOff && !!housing?.profile}

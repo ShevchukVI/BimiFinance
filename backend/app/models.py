@@ -101,6 +101,7 @@ class Jar(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # whose Monobank
     bank_balance = Column(Float, nullable=True)
     synced_at = Column(DateTime, nullable=True)
+    hidden = Column(Boolean, default=False, nullable=False)  # «видалена» ціль з історією / банка Monobank: не показуємо
     family = relationship("Family", back_populates="jars")
     transactions = relationship("Transaction", back_populates="jar")
 

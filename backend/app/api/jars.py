@@ -49,6 +49,48 @@ def _jar_actor_user_id(db: Session, actor: Actor, family_id: int):
     return mem.user_id if mem else None
 
 
+def _own_jar(db: Session, actor: Actor, jar_id: int) -> models.Jar:
+    jar = crud.get_jar_by_id(db, jar_id)
+    if not jar or jar.hidden:
+        raise HTTPException(status_code=404, detail="Ціль не знайдено")
+    check_family_membership(db, actor, jar.family_id)
+    return jar
+
+
+@router.put("/jars/{jar_id}", response_model=schemas.JarOut)
+def update_jar(jar_id: int, payload: schemas.JarUpdate, actor: Actor = Depends(get_actor), db: Session = Depends(get_db)):
+    jar = _own_jar(db, actor, jar_id)
+    if payload.name is not None:
+        if jar.mono_jar_id:  # the next sync would overwrite it anyway
+            raise HTTPException(status_code=400, detail="Назву банки Monobank змінюйте в застосунку банку")
+        if not payload.name.strip():
+            raise HTTPException(status_code=400, detail="Вкажіть назву")
+        jar.name = payload.name.strip()
+    if payload.goal is not None:
+        if payload.goal < 0:
+            raise HTTPException(status_code=400, detail="Сума цілі не може бути від'ємною")
+        jar.goal = payload.goal
+    db.commit()
+    return next(j for j in crud.get_jars(db, jar.family_id) if j.id == jar.id)
+
+
+@router.delete("/jars/{jar_id}")
+def delete_jar(jar_id: int, actor: Actor = Depends(get_actor), db: Session = Depends(get_db)):
+    """Empty goal: gone. With history or a Monobank jar: hidden (history and stats stay, the bank sync won't bring it back)."""
+    jar = _own_jar(db, actor, jar_id)
+    balance = jar.bank_balance if (jar.mono_jar_id and jar.bank_balance is not None) else crud.get_jar_balance(db, jar.id)
+    if abs(balance or 0) >= 0.01:
+        raise HTTPException(status_code=400, detail="У цілі ще є гроші — спершу зніміть їх" +
+                            (" у Monobank" if jar.mono_jar_id else ""))
+    has_history = db.query(models.Transaction.id).filter(models.Transaction.jar_id == jar.id).first() is not None
+    if jar.mono_jar_id or has_history:
+        jar.hidden = True
+    else:
+        db.delete(jar)
+    db.commit()
+    return {"ok": True, "archived": bool(jar.mono_jar_id or has_history)}
+
+
 @router.post("/jars/{jar_id}/topup", response_model=schemas.JarOut)
 def topup_jar(jar_id: int, payload: schemas.JarTopUp, actor: Actor = Depends(get_actor),
               db: Session = Depends(get_db)):

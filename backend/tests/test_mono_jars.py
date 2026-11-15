@@ -55,3 +55,29 @@ def test_new_webhook_transfer_goes_to_jar(seeded, db):
         "family_id": fam.id, "user_id": u.id, "category_id": c["Очікує"].id, "amount": 500, "type": "Витрати",
         "title": "❓ Поповнення «ДБЖ»", "account": "Монобанк", "date": str(date.today())}).json()
     assert r["jar_id"] and r["type"] == "Поповнення" and r["category_id"] is None
+
+
+def test_edit_and_delete_goals(seeded, db):
+    fam, u = seeded["family"], seeded["admin"]
+    h = _hdr(fam.id)
+    empty = client.post("/jars", headers=h, json={"family_id": fam.id, "name": "Мейкап", "goal": 1000}).json()
+    r = client.put(f"/jars/{empty['id']}", headers=h, json={"name": "Мейкап 2", "goal": 2000}).json()
+    assert (r["name"], r["goal"]) == ("Мейкап 2", 2000)
+    assert client.delete(f"/jars/{empty['id']}", headers=h).json() == {"ok": True, "archived": False}
+    assert db.get(models.Jar, empty["id"]) is None
+    # cash goal with money: refuse; after withdrawal: hidden, history stays
+    cash = client.post("/jars", headers=h, json={"family_id": fam.id, "name": "Відпустка", "goal": 500}).json()
+    client.post(f"/jars/{cash['id']}/topup", headers=h, json={"amount": 100})
+    assert client.delete(f"/jars/{cash['id']}", headers=h).status_code == 400
+    client.post(f"/jars/{cash['id']}/withdraw", headers=h, json={"amount": 100})
+    assert client.delete(f"/jars/{cash['id']}", headers=h).json()["archived"] is True
+    assert cash["id"] not in [j["id"] for j in client.get(f"/families/{fam.id}/jars", headers=h).json()]
+    # Monobank jar: name is the bank's; hidden one stays hidden on sync while empty, reappears when money comes in
+    MJ.upsert_jars(db, fam.id, u.id, [{"id": "g", "title": "GTA VI", "currencyCode": 980, "balance": 0, "goal": 0}]); db.commit()
+    gta = db.query(models.Jar).filter_by(mono_jar_id="g").one()
+    assert client.put(f"/jars/{gta.id}", headers=h, json={"name": "x"}).status_code == 400
+    assert client.delete(f"/jars/{gta.id}", headers=h).json()["archived"] is True
+    MJ.upsert_jars(db, fam.id, u.id, [{"id": "g", "title": "GTA VI", "currencyCode": 980, "balance": 0}]); db.commit()
+    assert gta.id not in [j["id"] for j in client.get(f"/families/{fam.id}/jars", headers=h).json()]
+    MJ.upsert_jars(db, fam.id, u.id, [{"id": "g", "title": "GTA VI", "currencyCode": 980, "balance": 500}]); db.commit()
+    assert gta.id in [j["id"] for j in client.get(f"/families/{fam.id}/jars", headers=h).json()]

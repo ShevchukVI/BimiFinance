@@ -4,11 +4,13 @@ import { Jar } from '../types';
 import { money } from '../format';
 import { Button, Card, Empty, Progress } from '../ui';
 import JarHistoryModal from '../components/JarHistoryModal';
+import { EditJarModal } from '../components/JarModals';
 
-export default function JarsPage({ jars, familyId, onTopUp, onCreate, onSync, syncing }: {
-  jars: Jar[]; familyId: number; onTopUp: (jar: Jar) => void; onCreate: () => void; onSync?: () => void; syncing?: boolean;
+export default function JarsPage({ jars, familyId, onTopUp, onCreate, onSync, syncing, onChanged }: {
+  jars: Jar[]; familyId: number; onTopUp: (jar: Jar) => void; onCreate: () => void; onSync?: () => void; syncing?: boolean; onChanged: () => void;
 }) {
   const [historyJar, setHistoryJar] = useState<Jar | null>(null);
+  const [editJar, setEditJar] = useState<Jar | null>(null);
   if (jars.length === 0) {
     return (
       <div className="stack">
@@ -29,11 +31,12 @@ export default function JarsPage({ jars, familyId, onTopUp, onCreate, onSync, sy
                 <span className="small tnum"><b>{money(jar.balance, jar.currency)}</b> <span className="muted">/ {money(jar.goal, jar.currency)}</span></span>
               </div>
               <Progress value={pct} />
-              <div className="muted xsmall">{jar.goal ? (pct >= 100 ? 'Ціль досягнута 🎉' : `${Math.round(pct)}% · ще ${money(Math.max(jar.goal - jar.balance, 0), jar.currency)}`) : 'Без цілі — задайте суму в банці Monobank'}
+              <div className="muted xsmall">{jar.goal ? (pct >= 100 ? 'Ціль досягнута 🎉' : `${Math.round(pct)}% · ще ${money(Math.max(jar.goal - jar.balance, 0), jar.currency)}`) : 'Без суми цілі — натисніть ✏️'}
                 {jar.mono_jar_id && jar.synced_at ? ` · оновлено ${day(jar.synced_at)}` : ''}</div>
               <div className="btn-row" style={{ marginTop: 4 }}>
                 {!jar.mono_jar_id && <Button size="sm" onClick={() => onTopUp(jar)}>Поповнити / зняти</Button>}
                 <Button size="sm" variant="secondary" onClick={() => setHistoryJar(jar)}>Історія</Button>
+                <button className="btn btn--icon" aria-label="Змінити або видалити ціль" onClick={() => setEditJar(jar)}>✏️</button>
               </div>
               {jar.mono_jar_id && <div className="muted xsmall">Поповнюйте й знімайте в застосунку Monobank — Bimi бачить це сам і не рахує як витрату.</div>}
             </div>
@@ -42,6 +45,7 @@ export default function JarsPage({ jars, familyId, onTopUp, onCreate, onSync, sy
       })}
       {onSync && <Button variant="secondary" onClick={onSync} busy={syncing}>🏦 Оновити банки з Monobank</Button>}
       <Button variant="ghost" onClick={onCreate}>+ Ціль без банки (готівка)</Button>
+      {editJar && <EditJarModal jar={editJar} onClose={() => setEditJar(null)} onChanged={onChanged} />}
       {historyJar && <JarHistoryModal jar={historyJar} familyId={familyId} onClose={() => setHistoryJar(null)} />}
     </div>
   );

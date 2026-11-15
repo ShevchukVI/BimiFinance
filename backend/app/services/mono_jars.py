@@ -57,6 +57,8 @@ def upsert_jars(db: Session, family_id: int, user_id: int, jars: list) -> int:
         if goal > 0:
             row.goal = goal
         row.bank_balance = (j.get("balance") or 0) / 100.0
+        if row.bank_balance:
+            row.hidden = False  # money appeared in a hidden bank jar → show it again
         row.synced_at = _now()
         n += 1
     db.flush()
