@@ -111,3 +111,29 @@ def get_achievements(tg_id: int, _: None = Depends(require_internal_key), db: Se
         "total_saved": total_saved,
     })
     return [{"key": a.key, "name": a.name, "icon": a.icon, "description": a.description} for a in earned]
+
+
+@router.get("/evening")
+async def system_evening(_: None = Depends(require_internal_key), db: Session = Depends(get_db)):
+    """Bot, 21:00: evening report for every family with a plan (family_plans), not sent today yet.
+    Same shape as /system/reminders; the bot acks the keys via /system/reminders/ack."""
+    from app import models
+    from app.api.banking import family_bank_balances  # local import: avoid a cycle
+    from app.services import evening
+    from app.services.housing import today_kyiv
+    today = today_kyiv()
+    key = f"evening:{today}"
+    out = []
+    for (fid,) in db.query(models.FamilyPlan.family_id).all():
+        if db.query(models.HousingReminderLog).filter_by(family_id=fid, key=key).first():
+            continue
+        tg_ids = [u.tg_id for u in crud.get_users(db, fid) if u.tg_id]
+        if not tg_ids:
+            continue
+        try:
+            bank = await family_bank_balances(fid, None, db)
+        except Exception:
+            bank = []
+        out.append({"family_id": fid, "tg_ids": tg_ids, "keys": [key], "tab": "analytics",
+                    "text": evening.build(db, fid, bank, today)})
+    return out

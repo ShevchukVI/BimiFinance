@@ -294,6 +294,15 @@ class HousingReminderLog(Base):
     sent_on = Column(Date, nullable=False)
 
 
+class FamilyPlan(Base):
+    """The family's budget plan, synced from the owner's plan page (JSON: planned events, daily free-money
+    curve, daily life budget, tips) — the evening report compares the day with it."""
+    __tablename__ = "family_plans"
+    family_id = Column(Integer, ForeignKey("families.id"), primary_key=True)
+    data = Column(Text, nullable=False)
+    synced_at = Column(DateTime, nullable=False)
+
+
 class Obligation(Base):
     """Regular payment the family owes: installment («оплата частинами»), loan or subscription.
     Payments are finance transactions linked via transactions.obligation_id."""
